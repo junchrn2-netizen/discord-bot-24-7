@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 # 加载环境变量
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 
 # 设置机器人意图
 intents = discord.Intents.default()
