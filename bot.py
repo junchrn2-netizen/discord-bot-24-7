@@ -52,15 +52,8 @@ async def on_command_error(ctx, error):
     print(f'❌ 命令错误: {error}')
     await ctx.send(f'发生错误: {error}')
 
-# 自动重连机制
 def run_bot():
-    while True:
-        try:
-            bot.run(TOKEN)
-        except Exception as e:
-            print(f'⚠️ 机器人崩溃！正在重启... 错误: {e}')
-            import time
-            time.sleep(5)  # 等5秒后重启
+    bot.run(TOKEN)
 
 if __name__ == '__main__':
-    run_bot()
+    bot.run(TOKEN)
