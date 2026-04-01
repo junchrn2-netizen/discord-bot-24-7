@@ -53,7 +53,7 @@ async def on_command_error(ctx, error):
     await ctx.send(f'发生错误: {error}')
 
 def run_bot():
-    bot.run(TOKEN)
+    bot.run('DISCORD_BOT_TOKEN')
 
 if __name__ == '__main__':
-    bot.run(TOKEN)
+    bot.run('DISCORD_BOT_TOKEN')
