@@ -45,9 +45,11 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     for role in member.roles:
         if role.name == "@everyone":
             continue
-        # ✅ 只要包含中文关键词就算数
+        # ✅ 精准匹配：去掉空格和特殊符号再对比
+        role_name_clean = role.name.replace(" ", "").replace("【", "").replace("】", "").replace("(", "").replace(")", "")
         for rank_name in GLOBAL_RANK_ORDER:
-            if rank_name in role.name:
+            rank_name_clean = rank_name.replace(" ", "")
+            if rank_name_clean in role_name_clean:
                 idx = GLOBAL_RANK_ORDER.index(rank_name)
                 if idx > best_global:
                     best_global = idx
@@ -127,47 +129,72 @@ async def apply_rank_change(
 ) -> None:
     guild = ctx.guild
 
+    # 🚨 先检查机器人权限和角色顺序！
+    bot_member = guild.get_member(bot.user.id)
+    if not bot_member.guild_permissions.manage_roles:
+        await ctx.send("❌ 机器人没有「管理角色」权限！请在服务器设置里开启！")
+        return
+    
     # 🔍 找新角色
     new_role = None
+    new_role_clean = new_role_name.replace(" ", "")
     for role in guild.roles:
-        if new_role_name in role.name:
+        role_clean = role.name.replace(" ", "").replace("【", "").replace("】", "").replace("(", "").replace(")", "")
+        if new_role_clean in role_clean:
             new_role = role
             break
 
     if new_role is None:
-        await ctx.send(f"❌ 找不到角色「{new_role_name}」！")
+        all_roles = [r.name for r in guild.roles if r.name != "@everyone"]
+        await ctx.send(f"❌ 找不到角色「{new_role_name}」！\n服务器角色列表：\n{', '.join(all_roles[:20])}{'...' if len(all_roles)>20 else ''}")
+        print(f"❌ 错误：找不到角色 {new_role_name}")
+        return
+
+    # 🚨 检查新角色是否在机器人角色下方！
+    if bot_member.top_role.position <= new_role.position:
+        await ctx.send(f"⚠️ 警告！角色「{new_role_name}」在机器人角色上方！\n请把机器人角色拖到所有职级角色的最顶端！否则无法添加！")
         return
 
     # 🗑️ 找旧角色
     old_role = None
+    old_role_clean = old_role_name.replace(" ", "")
     for role in target.roles:
-        if old_role_name in role.name:
+        role_clean = role.name.replace(" ", "").replace("【", "").replace("】", "").replace("(", "").replace(")", "")
+        if old_role_clean in role_clean:
             old_role = role
             break
 
     try:
-        # ✅ 第一步：先加新角色！必须加上！
+        # ✅ 第一步：先加新角色
+        print(f"🔍 尝试添加角色: {new_role.name} (位置: {new_role.position})")
         await target.add_roles(new_role, reason=f"{action} add {new_role_name}")
-        print(f"✅ 已成功添加角色: {new_role_name}")
+        
+        # ✅ 强制刷新成员缓存，确保角色生效
+        await target.fetch()
+        print(f"✅ 已添加，刷新后成员角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
 
         # ✅ 第二步：再删旧角色
         if old_role is not None:
+            print(f"🔍 尝试删除角色: {old_role.name}")
             await target.remove_roles(old_role, reason=f"{action} remove {old_role_name}")
-            print(f"✅ 已成功删除角色: {old_role_name}")
+            await target.fetch()
+            print(f"✅ 已删除，刷新后成员角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
 
         # 🎉 成功提示
         action_label = "晋升" if action == "promote" else "降级"
         action_emoji = "⬆️" if action == "promote" else "⬇️"
         await ctx.send(
-            f"{action_emoji} 成功！**{target.display_name}** 获得「{new_role_name}」！"
+            f"{action_emoji} 成功！**{target.display_name}** 「{old_role_name}」→「{new_role_name}」\n✅ 已刷新角色缓存！"
         )
         await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
-    except discord.Forbidden:
-        await ctx.send("❌ 权限不够！把机器人拖到角色列表最顶端！")
+    except discord.Forbidden as e:
+        await ctx.send(f"❌ 权限错误！请检查：\n1. 机器人角色是否在所有职级角色上方\n2. 是否开启了「管理角色」权限\n错误信息: {e}")
+        print(f"❌ 权限错误: {e}")
         return
     except Exception as e:
-        await ctx.send(f"❌ 错误: {e}")
+        await ctx.send(f"❌ 未知错误: {e}")
+        print(f"❌ 未知错误: {e}")
         return
 
 
@@ -175,6 +202,26 @@ async def apply_rank_change(
 async def on_ready():
     print(f'✅ 机器人已上线: {bot.user}')
     print(f'ID: {bot.user.id}')
+    print(f"📋 系统定义职级: {', '.join(GLOBAL_RANK_ORDER)}")
+    
+    # 🚨 启动时自动检查权限和角色顺序
+    for guild in bot.guilds:
+        bot_member = guild.get_member(bot.user.id)
+        print(f"\n🏰 服务器: {guild.name}")
+        print(f"🔐 机器人权限 - 管理角色: {bot_member.guild_permissions.manage_roles}")
+        print(f"⬆️ 机器人最高角色位置: {bot_member.top_role.position}")
+        
+        # 检查所有职级角色位置
+        for rank_name in GLOBAL_RANK_ORDER:
+            rank_clean = rank_name.replace(" ", "")
+            for role in guild.roles:
+                role_clean = role.name.replace(" ", "").replace("【", "").replace("】", "").replace("(", "").replace(")", "")
+                if rank_clean in role_clean:
+                    print(f"📌 {role.name} 位置: {role.position}")
+                    if bot_member.top_role.position <= role.position:
+                        print(f"⚠️  警告！{role.name} 在机器人角色上方！")
+                    break
+    
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -195,21 +242,24 @@ async def ping(ctx):
 
 @bot.command(name='status')
 async def status(ctx):
-    await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
+    await ctx.send(f"✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}")
 
 @bot.command(name='myroles')
 async def myroles(ctx):
-    role_names = []
-    for role in ctx.author.roles:
-        if role.name != "@everyone":
-            role_names.append(role.name)
-    
+    role_names = [r.name for r in ctx.author.roles if r.name != "@everyone"]
     await ctx.send(f"🔍 你的角色列表：\n{', '.join(role_names)}")
     await ctx.send(f"📋 系统定义的职级：\n{', '.join(GLOBAL_RANK_ORDER)}")
 
+# 🆕 新增命令：检查机器人权限
+@bot.command(name='checkperm')
+async def checkperm(ctx):
+    bot_member = ctx.guild.get_member(bot.user.id)
+    perm_status = f"🔐 机器人权限检查：\n管理角色: {'✅ 已开启' if bot_member.guild_permissions.manage_roles else '❌ 未开启'}\n最高角色: {bot_member.top_role.name} (位置: {bot_member.top_role.position})"
+    await ctx.send(perm_status)
+
 
 # ─────────────────────────────────────────────
-# !promote 命令
+# !promote 晋升命令
 # ─────────────────────────────────────────────
 
 @bot.command(name='promote')
@@ -251,7 +301,7 @@ async def promote(ctx, member: discord.Member = None):
 
 
 # ─────────────────────────────────────────────
-# !demote 命令
+# !demote 降级命令
 # ─────────────────────────────────────────────
 
 @bot.command(name='demote')
@@ -301,7 +351,8 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CheckFailure):
         await ctx.send("❌ 你没有权限使用此命令！")
     else:
-        print(f'❌ 错误: {error}')
+        await ctx.send(f"❌ 错误: {error}")
+        print(f"❌ 错误: {error}")
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
