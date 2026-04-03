@@ -45,15 +45,17 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     for role in member.roles:
         if role.name == "@everyone":
             continue
-        # 精确匹配，名字必须完全一样
-        if role.name in GLOBAL_RANK_ORDER:
-            idx = GLOBAL_RANK_ORDER.index(role.name)
-            if idx > best_global:
-                best_global = idx
-                best_role = role.name
-                best_cat = next(
-                    cat for cat, ranks in RANK_CATEGORIES.items() if role.name in ranks
-                )
+        # 🔍 模糊匹配：只要角色名里包含关键词就算数！
+        for rank_name in GLOBAL_RANK_ORDER:
+            if rank_name in role.name:
+                idx = GLOBAL_RANK_ORDER.index(rank_name)
+                if idx > best_global:
+                    best_global = idx
+                    best_role = rank_name
+                    best_cat = next(
+                        cat for cat, ranks in RANK_CATEGORIES.items() if rank_name in ranks
+                    )
+                break
 
     return best_cat, best_role, best_global
 
@@ -125,10 +127,10 @@ async def apply_rank_change(
 ) -> None:
     guild = ctx.guild
 
-    # 🔍 找新角色
+    # 🔍 找新角色：模糊匹配
     new_role = None
     for role in guild.roles:
-        if role.name == new_role_name:
+        if new_role_name in role.name:
             new_role = role
             break
 
@@ -223,11 +225,6 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
-    # 🔓 去掉等级限制！只要类别对就能用！
-    # if op_global <= tgt_global:
-    #     await ctx.send("❌ 你只能晋升比你低的。")
-    #     return
-
     new_role = get_next_rank(tgt_cat, tgt_role)
     if new_role is None:
         await ctx.send(f"❌ 已经是最高级了。")
@@ -265,11 +262,6 @@ async def demote(ctx, member: discord.Member = None):
     if tgt_role is None:
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
-
-    # 🔓 去掉等级限制！只要类别对就能用！
-    # if op_global <= tgt_global:
-    #     await ctx.send("❌ 你只能降级比你低的。")
-    #     return
 
     new_role = get_prev_rank(tgt_cat, tgt_role)
     if new_role is None:
