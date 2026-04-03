@@ -45,7 +45,8 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     for role in member.roles:
         if role.name == "@everyone":
             continue
-        # 🔍 模糊匹配：只要角色名里包含关键词就算数！
+            
+        # ✅ 核心逻辑：只要包含中文关键词就算数！
         for rank_name in GLOBAL_RANK_ORDER:
             if rank_name in role.name:
                 idx = GLOBAL_RANK_ORDER.index(rank_name)
@@ -60,7 +61,7 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     return best_cat, best_role, best_global
 
 
-# 🔐 权限检查：只要属于指定类别就有权限！
+# 🔐 权限检查
 def has_permission(ctx):
     cat, _, _ = get_member_rank_info(ctx.author)
     return cat in ALLOWED_CATEGORIES
@@ -127,7 +128,7 @@ async def apply_rank_change(
 ) -> None:
     guild = ctx.guild
 
-    # 🔍 找新角色：模糊匹配
+    # 🔍 找新角色：只要包含中文就算数！
     new_role = None
     for role in guild.roles:
         if new_role_name in role.name:
@@ -139,7 +140,7 @@ async def apply_rank_change(
         return
 
     try:
-        # ➕ 只加不删！旧职位永远保留！
+        # ➕ 只加不删！
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
 
         # 🎉 成功
@@ -200,7 +201,7 @@ async def myroles(ctx):
 # ─────────────────────────────────────────────
 
 @bot.command(name='promote')
-@commands.check(has_permission)  # 🔐 权限检查
+@commands.check(has_permission)
 async def promote(ctx, member: discord.Member = None):
     if member is None:
         await ctx.send("❌ 用法: `!promote @用户`")
@@ -238,7 +239,7 @@ async def promote(ctx, member: discord.Member = None):
 # ─────────────────────────────────────────────
 
 @bot.command(name='demote')
-@commands.check(has_permission)  # 🔐 权限检查
+@commands.check(has_permission)
 async def demote(ctx, member: discord.Member = None):
     if member is None:
         await ctx.send("❌ 用法: `!demote @用户`")
