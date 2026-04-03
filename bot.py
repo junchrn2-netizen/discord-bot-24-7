@@ -49,6 +49,9 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     best_cat = None
 
     for role in member.roles:
+        # 跳过 everyone 避免干扰
+        if role.name == "@everyone":
+            continue
         for rank_name in GLOBAL_RANK_ORDER:
             if rank_name in role.name:
                 idx = GLOBAL_RANK_ORDER.index(rank_name)
@@ -129,7 +132,7 @@ async def apply_rank_change(
     """
     给目标成员添加新职级角色，并移除其所有已知职级角色（新职级除外）。
     随后发送日志并回复操作结果。
-    **修复：先加新角色，再删旧角色，确保不会丢身份**
+    **修复：先加后删，确保身份不丢失**
     """
     guild = ctx.guild
 
@@ -154,6 +157,8 @@ async def apply_rank_change(
     # 收集目标成员当前持有的所有已知职级角色（排除新职级）
     roles_to_remove = []
     for role in target.roles:
+        if role.name == "@everyone":
+            continue
         for rank_name in GLOBAL_RANK_ORDER:
             if rank_name in role.name and rank_name != new_role_name:
                 roles_to_remove.append(role)
@@ -215,18 +220,16 @@ async def status(ctx):
     await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
 
 # ─────────────────────────────────────────────
-# 查看自己角色的调试命令（已修复：纯文字，不艾特）
+# 查看自己角色的调试命令（已修复：纯文字，不艾特，不显示everyone）
 # ─────────────────────────────────────────────
 @bot.command(name='myroles')
 async def myroles(ctx):
     """查看自己拥有的所有角色名称，用于调试"""
-    # ✅ 关键修改：只提取名称字符串，并且把 @everyone 变成普通文字
     role_names = []
     for role in ctx.author.roles:
-        name = role.name
-        if name == "@everyone":
-            name = "everyone"  # 去掉@符号
-        role_names.append(name)
+        # ✅ 关键修改：跳过 everyone，只显示纯文字名称
+        if role.name != "@everyone":
+            role_names.append(role.name)
     
     await ctx.send(f"🔍 你的角色列表：\n{', '.join(role_names)}")
     await ctx.send(f"📋 系统定义的职级：\n{', '.join(GLOBAL_RANK_ORDER)}")
