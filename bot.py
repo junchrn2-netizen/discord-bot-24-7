@@ -169,15 +169,15 @@ async def apply_rank_change(
         print(f"🔍 尝试添加角色: {new_role.name} (位置: {new_role.position})")
         await target.add_roles(new_role, reason=f"{action} add {new_role_name}")
         
-        # ✅ 强制刷新成员缓存，确保角色生效
-        await target.fetch()
+        # ✅ 修复：正确的刷新方式
+        target = await guild.fetch_member(target.id)
         print(f"✅ 已添加，刷新后成员角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
 
         # ✅ 第二步：再删旧角色
         if old_role is not None:
             print(f"🔍 尝试删除角色: {old_role.name}")
             await target.remove_roles(old_role, reason=f"{action} remove {old_role_name}")
-            await target.fetch()
+            target = await guild.fetch_member(target.id)
             print(f"✅ 已删除，刷新后成员角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
 
         # 🎉 成功提示
