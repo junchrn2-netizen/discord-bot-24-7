@@ -3,18 +3,12 @@ from discord.ext import commands, tasks
 import os
 from dotenv import load_dotenv
 
-# 加载环境变量
 load_dotenv()
-
-# 意图全开
 intents = discord.Intents.all()
-intents.message_content = True
-intents.members = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ─────────────────────────────────────────────
-# 🔰 职级体系配置
+# 🔰 职级配置
 # ─────────────────────────────────────────────
 
 RANK_CATEGORIES = {
@@ -33,7 +27,7 @@ LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
 
 
-# 🔍 找角色：只要包含关键词就返回
+# 🔍 找角色：只要包含关键词就好
 def find_role(guild, name):
     name_low = name.lower()
     for role in guild.roles:
@@ -127,31 +121,38 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send("❌ 你只能晋升职级低于你的成员！")
         return
 
-    new_rank = next_rank(target_rank)
-    if not new_rank:
+    new_rank_name = next_rank(target_rank)
+    if not new_rank_name:
         await ctx.send("❌ 已经是最高级了！")
         return
 
-    # 🎯 直接找角色
+    # 🎯 找角色
     old_role = find_role(ctx.guild, target_rank)
-    new_role = find_role(ctx.guild, new_rank)
+    new_role = find_role(ctx.guild, new_rank_name)
 
     if not new_role:
-        await ctx.send(f"❌ 找不到角色：{new_rank}")
+        await ctx.send(f"❌ 找不到角色：{new_rank_name}")
         return
 
+    # 🚨 安全检查：必须先加后删！加不上就不删！
     try:
-        # ✅ 第一步：直接给新角色
+        # ✅ 第一步：先加新角色
         await member.add_roles(new_role)
         print(f"✅ 已给: {new_role.name}")
 
-        # ✅ 第二步：直接删旧角色
+        # ✅ 刷新确认
+        member = await ctx.guild.fetch_member(member.id)
+        if new_role not in member.roles:
+            await ctx.send(f"❌ 失败！无法添加 {new_rank_name}！旧角色已保留！")
+            return  # ❌ 加不上就停止，绝对不删旧的！
+
+        # ✅ 第二步：再加删旧角色
         if old_role:
             await member.remove_roles(old_role)
             print(f"✅ 已删: {old_role.name}")
 
-        await ctx.send(f"⬆️ 成功！{member.display_name} 「{target_rank}」→「{new_rank}」")
-        await log_action(ctx, "promote", member, target_rank, new_rank, get_category(target_rank))
+        await ctx.send(f"⬆️ 成功！{member.display_name} 「{target_rank}」→「{new_rank_name}」")
+        await log_action(ctx, "promote", member, target_rank, new_rank_name, get_category(target_rank))
 
     except Exception as e:
         await ctx.send(f"❌ 错误: {e}")
@@ -183,31 +184,38 @@ async def demote(ctx, member: discord.Member = None):
         await ctx.send("❌ 你只能降级职级低于你的成员！")
         return
 
-    new_rank = prev_rank(target_rank)
-    if not new_rank:
+    new_rank_name = prev_rank(target_rank)
+    if not new_rank_name:
         await ctx.send("❌ 已经是最低级了！")
         return
 
-    # 🎯 直接找角色
+    # 🎯 找角色
     old_role = find_role(ctx.guild, target_rank)
-    new_role = find_role(ctx.guild, new_rank)
+    new_role = find_role(ctx.guild, new_rank_name)
 
     if not new_role:
-        await ctx.send(f"❌ 找不到角色：{new_rank}")
+        await ctx.send(f"❌ 找不到角色：{new_rank_name}")
         return
 
+    # 🚨 安全检查：必须先加后删！加不上就不删！
     try:
-        # ✅ 第一步：直接给新角色
+        # ✅ 第一步：先加新角色
         await member.add_roles(new_role)
         print(f"✅ 已给: {new_role.name}")
 
-        # ✅ 第二步：直接删旧角色
+        # ✅ 刷新确认
+        member = await ctx.guild.fetch_member(member.id)
+        if new_role not in member.roles:
+            await ctx.send(f"❌ 失败！无法添加 {new_rank_name}！旧角色已保留！")
+            return  # ❌ 加不上就停止，绝对不删旧的！
+
+        # ✅ 第二步：再加删旧角色
         if old_role:
             await member.remove_roles(old_role)
             print(f"✅ 已删: {old_role.name}")
 
-        await ctx.send(f"⬇️ 成功！{member.display_name} 「{target_rank}」→「{new_rank}」")
-        await log_action(ctx, "demote", member, target_rank, new_rank, get_category(target_rank))
+        await ctx.send(f"⬇️ 成功！{member.display_name} 「{target_rank}」→「{new_rank_name}」")
+        await log_action(ctx, "demote", member, target_rank, new_rank_name, get_category(target_rank))
 
     except Exception as e:
         await ctx.send(f"❌ 错误: {e}")
