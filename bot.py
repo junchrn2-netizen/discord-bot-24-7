@@ -194,6 +194,16 @@ async def status(ctx):
     """检查机器人状态"""
     await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
 
+# ─────────────────────────────────────────────
+# 新增：查看自己角色的调试命令
+# ─────────────────────────────────────────────
+@bot.command(name='myroles')
+async def myroles(ctx):
+    """查看自己拥有的所有角色名称，用于调试"""
+    roles = [role.name for role in ctx.author.roles]
+    await ctx.send(f"🔍 你的角色列表：\n{', '.join(roles)}")
+    await ctx.send(f"📋 系统定义的职级：\n{', '.join(ALL_RANK_NAMES)}")
+
 
 # ─────────────────────────────────────────────
 # !promote 命令
@@ -226,7 +236,7 @@ async def promote(ctx, member: discord.Member = None):
 
     # 操作人必须拥有已知职级
     if op_role is None:
-        await ctx.send("❌ 你没有任何已知职级，无法执行晋升操作。")
+        await ctx.send("❌ 你没有任何已知职级，无法执行晋升操作。\n请输入 `!myroles` 查看你的角色名称，并和系统定义对比。")
         return
 
     # 目标必须拥有已知职级
@@ -285,7 +295,7 @@ async def demote(ctx, member: discord.Member = None):
 
     # 操作人必须拥有已知职级
     if op_role is None:
-        await ctx.send("❌ 你没有任何已知职级，无法执行降级操作。")
+        await ctx.send("❌ 你没有任何已知职级，无法执行降级操作。\n请输入 `!myroles` 查看你的角色名称，并和系统定义对比。")
         return
 
     # 目标必须拥有已知职级
