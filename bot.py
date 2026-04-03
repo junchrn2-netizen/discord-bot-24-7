@@ -30,7 +30,7 @@ GLOBAL_RANK_ORDER: list[str] = []
 for _ranks in RANK_CATEGORIES.values():
     GLOBAL_RANK_ORDER.extend(_ranks)
 
-LOG_GUILD_ID = 1360354820757651657
+LOG_GUUID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
 
 
@@ -42,16 +42,15 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     for role in member.roles:
         if role.name == "@everyone":
             continue
-        for rank_name in GLOBAL_RANK_ORDER:
-            if rank_name in role.name:
-                idx = GLOBAL_RANK_ORDER.index(rank_name)
-                if idx > best_global:
-                    best_global = idx
-                    best_role = rank_name
-                    best_cat = next(
-                        cat for cat, ranks in RANK_CATEGORIES.items() if rank_name in ranks
-                    )
-                break
+        # 精确匹配，名字必须完全一样
+        if role.name in GLOBAL_RANK_ORDER:
+            idx = GLOBAL_RANK_ORDER.index(role.name)
+            if idx > best_global:
+                best_global = idx
+                best_role = role.name
+                best_cat = next(
+                    cat for cat, ranks in RANK_CATEGORIES.items() if role.name in ranks
+                )
 
     return best_cat, best_role, best_global
 
@@ -81,7 +80,7 @@ async def send_rank_log(
     new_role: str,
     category: str,
 ) -> None:
-    log_guild = bot.get_guild(LOG_GUILD_ID)
+    log_guild = bot.get_guild(LOG_GUUID)
     if log_guild is None:
         return
     log_channel = log_guild.get_channel(LOG_CHANNEL_ID)
@@ -117,56 +116,35 @@ async def apply_rank_change(
 ) -> None:
     guild = ctx.guild
 
-    # 🚨 第一步：先找到新角色，找不到直接报错，绝不删东西
+    # 🔍 找新角色
     new_role = None
     for role in guild.roles:
         if role.name == new_role_name:
             new_role = role
             break
-    if new_role is None:
-        for role in guild.roles:
-            if new_role_name in role.name:
-                new_role = role
-                break
 
     if new_role is None:
-        await ctx.send(f"❌ 致命错误：服务器里找不到「{new_role_name}」这个角色！请先创建它！")
+        await ctx.send(f"❌ 找不到角色「{new_role_name}」！")
         return
 
-    # 🚨 第二步：先加新角色
     try:
+        # ➕ 只加不删！旧职位永远保留！
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
+
+        # 🎉 成功
+        action_label = "晋升" if action == "promote" else "降级"
+        action_emoji = "⬆️" if action == "promote" else "⬇️"
+        await ctx.send(
+            f"{action_emoji} 成功！**{target.display_name}** 获得「{new_role_name}」！"
+        )
+        await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
+
     except discord.Forbidden:
-        await ctx.send("❌ 权限不够！机器人角色必须在最顶端！")
+        await ctx.send("❌ 权限不够！把机器人拖最上面！")
         return
     except Exception as e:
-        await ctx.send(f"❌ 添加失败: {e}")
+        await ctx.send(f"❌ 错误: {e}")
         return
-
-    # ✅ 第三步：只有加上了，才敢删旧的！
-    roles_to_remove = []
-    for role in target.roles:
-        if role.name == "@everyone":
-            continue
-        for rank_name in GLOBAL_RANK_ORDER:
-            if rank_name in role.name and rank_name != new_role_name:
-                roles_to_remove.append(role)
-                break
-
-    if roles_to_remove:
-        try:
-            await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup")
-        except Exception as e:
-            # 删失败没关系，反正新的已经加上了
-            print(f"删除旧角色时出现小问题: {e}")
-
-    # 🎉 完成
-    action_label = "晋升" if action == "promote" else "降级"
-    action_emoji = "⬆️" if action == "promote" else "⬇️"
-    await ctx.send(
-        f"{action_emoji} 成功！**{target.display_name}** 从「{old_role_name}」→「{new_role_name}」"
-    )
-    await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
 
 @bot.event
@@ -221,32 +199,32 @@ async def promote(ctx, member: discord.Member = None):
         return
 
     if member.bot:
-        await ctx.send("❌ 无法对机器人执行职级操作。")
+        await ctx.send("❌ 无法对机器人操作。")
         return
 
     op_cat, op_role, op_global = get_member_rank_info(ctx.author)
     tgt_cat, tgt_role, tgt_global = get_member_rank_info(member)
 
     if op_role is None:
-        await ctx.send("❌ 你没有任何已知职级，无法执行晋升操作。")
+        await ctx.send("❌ 你没有权限。")
         return
 
     if tgt_role is None:
-        await ctx.send(f"❌ **{member.display_name}** 没有任何已知职级，无法晋升。")
+        await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
     if op_global <= tgt_global:
-        await ctx.send("❌ 你只能晋升职级低于你的成员。")
+        await ctx.send("❌ 你只能晋升比你低的。")
         return
 
     new_role = get_next_rank(tgt_cat, tgt_role)
     if new_role is None:
-        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最高职级，无法继续晋升。")
+        await ctx.send(f"❌ 已经是最高级了。")
         return
 
     new_global = GLOBAL_RANK_ORDER.index(new_role)
     if new_global >= op_global:
-        await ctx.send(f"❌ 无法晋升，目标职级「{new_role}」不低于你的职级。")
+        await ctx.send(f"❌ 目标职级不低于你。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "promote", tgt_cat)
@@ -267,27 +245,27 @@ async def demote(ctx, member: discord.Member = None):
         return
 
     if member.bot:
-        await ctx.send("❌ 无法对机器人执行职级操作。")
+        await ctx.send("❌ 无法对机器人操作。")
         return
 
     op_cat, op_role, op_global = get_member_rank_info(ctx.author)
     tgt_cat, tgt_role, tgt_global = get_member_rank_info(member)
 
     if op_role is None:
-        await ctx.send("❌ 你没有任何已知职级，无法执行降级操作。")
+        await ctx.send("❌ 你没有权限。")
         return
 
     if tgt_role is None:
-        await ctx.send(f"❌ **{member.display_name}** 没有任何已知职级，无法降级。")
+        await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
     if op_global <= tgt_global:
-        await ctx.send("❌ 你只能降级职级低于你的成员。")
+        await ctx.send("❌ 你只能降级比你低的。")
         return
 
     new_role = get_prev_rank(tgt_cat, tgt_role)
     if new_role is None:
-        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最低职级，无法继续降级。")
+        await ctx.send(f"❌ 已经是最低级了。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "demote", tgt_cat)
@@ -296,11 +274,11 @@ async def demote(ctx, member: discord.Member = None):
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MemberNotFound):
-        await ctx.send(f"❌ 未找到成员，请确认 @ 了正确的用户。")
+        await ctx.send(f"❌ 未找到成员。")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
+        await ctx.send(f"❌ 用法不对。")
     else:
-        print(f'❌ 命令错误: {error}')
+        print(f'❌ 错误: {error}')
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
