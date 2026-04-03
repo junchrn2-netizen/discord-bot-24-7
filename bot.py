@@ -14,20 +14,19 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ─────────────────────────────────────────────
-# 职级体系配置
+# 🔰 职级体系配置 (完全按爸爸给的列表)
 # ─────────────────────────────────────────────
 
 RANK_CATEGORIES = {
     "LR": ["服务领队", "初级管理员", "高级管理员"],
     "MR": ["主管", "经理"],
     "HR": ["初级公司", "执行实习生", "执行官", "副总裁", "总裁"],
-    # ✅ 这里顺序绝对正确！副主席 -> 主席
     "SHR": ["副主席", "主席", "星球委员会", "执行委员会", "外星委员会"],
     "Leadership": ["领导力实习生", "社区官员", "专员"],
     "Ownership": ["社区经理", "副服主", "服主", "持有者"],
 }
 
-# 允许使用命令的类别
+# 🔐 允许使用晋升/降级命令的类别
 ALLOWED_CATEGORIES = ["SHR", "Leadership", "Ownership"]
 
 GLOBAL_RANK_ORDER: list[str] = []
@@ -46,7 +45,7 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     for role in member.roles:
         if role.name == "@everyone":
             continue
-        # ✅ 只要包含中文就算数
+        # ✅ 只要包含中文关键词就算数
         for rank_name in GLOBAL_RANK_ORDER:
             if rank_name in role.name:
                 idx = GLOBAL_RANK_ORDER.index(rank_name)
@@ -70,17 +69,8 @@ def has_permission(ctx):
 def get_next_rank(category: str, current_role: str) -> str | None:
     ranks = RANK_CATEGORIES[category]
     idx = ranks.index(current_role)
-    
-    # ✅ 强制调试输出
-    print(f"DEBUG: 当前类别={category}, 当前职位={current_role}, 索引={idx}")
-    print(f"DEBUG: 列表={ranks}")
-    
     if idx + 1 < len(ranks):
-        next_r = ranks[idx + 1]
-        print(f"DEBUG: 下一个职位={next_r}")
-        return next_r
-    
-    print(f"DEBUG: 已经是最后一个了！")
+        return ranks[idx + 1]
     return None
 
 
@@ -148,20 +138,31 @@ async def apply_rank_change(
         await ctx.send(f"❌ 找不到角色「{new_role_name}」！")
         return
 
+    # 🗑️ 找旧角色准备删除
+    old_role = None
+    for role in target.roles:
+        if old_role_name in role.name:
+            old_role = role
+            break
+
     try:
-        # ➕ 只加不删
-        await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
+        # ➕ 先加新角色
+        await target.add_roles(new_role, reason=f"{action} to {new_role_name}")
+
+        # ➖ 再删旧角色 (所有级别都删！)
+        if old_role is not None:
+            await target.remove_roles(old_role, reason=f"{action} remove old role")
 
         # 🎉 成功
         action_label = "晋升" if action == "promote" else "降级"
         action_emoji = "⬆️" if action == "promote" else "⬇️"
         await ctx.send(
-            f"{action_emoji} 成功！**{target.display_name}** 获得「{new_role_name}」！"
+            f"{action_emoji} 成功！**{target.display_name}** 「{old_role_name}」→「{new_role_name}」"
         )
         await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
     except discord.Forbidden:
-        await ctx.send("❌ 权限不够！把机器人拖最上面！")
+        await ctx.send("❌ 权限不够！把机器人拖到角色列表最顶端！")
         return
     except Exception as e:
         await ctx.send(f"❌ 错误: {e}")
@@ -175,7 +176,7 @@ async def on_ready():
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="你的服务器"
+            name="职级系统"
         ),
         status=discord.Status.online
     )
@@ -206,7 +207,7 @@ async def myroles(ctx):
 
 
 # ─────────────────────────────────────────────
-# !promote 命令
+# !promote 晋升命令
 # ─────────────────────────────────────────────
 
 @bot.command(name='promote')
@@ -235,6 +236,11 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
+    # 权限检查：只能操作比自己低的
+    if op_global <= tgt_global:
+        await ctx.send("❌ 你只能晋升职级低于你的成员。")
+        return
+
     new_role = get_next_rank(tgt_cat, tgt_role)
     if new_role is None:
         await ctx.send(f"❌ 已经是最高级了。")
@@ -244,7 +250,7 @@ async def promote(ctx, member: discord.Member = None):
 
 
 # ─────────────────────────────────────────────
-# !demote 命令
+# !demote 降级命令
 # ─────────────────────────────────────────────
 
 @bot.command(name='demote')
@@ -271,6 +277,11 @@ async def demote(ctx, member: discord.Member = None):
 
     if tgt_role is None:
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
+        return
+
+    # 权限检查：只能操作比自己低的
+    if op_global <= tgt_global:
+        await ctx.send("❌ 你只能降级职级低于你的成员。")
         return
 
     new_role = get_prev_rank(tgt_cat, tgt_role)
