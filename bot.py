@@ -129,6 +129,7 @@ async def apply_rank_change(
     """
     给目标成员添加新职级角色，并移除其所有已知职级角色（新职级除外）。
     随后发送日志并回复操作结果。
+    **修复：先加新角色，再删旧角色，确保不会丢身份**
     """
     guild = ctx.guild
 
@@ -159,9 +160,11 @@ async def apply_rank_change(
                 break
 
     try:
+        # ✅ 关键修改：先添加新角色，再删除旧角色
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
         if roles_to_remove:
             await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup by {ctx.author}")
+        
         # 成功提示
         action_label = "晋升" if action == "promote" else "降级"
         action_emoji = "⬆️" if action == "promote" else "⬇️"
@@ -217,9 +220,15 @@ async def status(ctx):
 @bot.command(name='myroles')
 async def myroles(ctx):
     """查看自己拥有的所有角色名称，用于调试"""
-    roles = [role.name for role in ctx.author.roles]
-    # 纯文字发送，不触发任何提及
-    await ctx.send(f"🔍 你的角色列表：\n{', '.join(roles)}")
+    # ✅ 关键修改：只提取名称字符串，并且把 @everyone 变成普通文字
+    role_names = []
+    for role in ctx.author.roles:
+        name = role.name
+        if name == "@everyone":
+            name = "everyone"  # 去掉@符号
+        role_names.append(name)
+    
+    await ctx.send(f"🔍 你的角色列表：\n{', '.join(role_names)}")
     await ctx.send(f"📋 系统定义的职级：\n{', '.join(GLOBAL_RANK_ORDER)}")
 
 
@@ -344,7 +353,8 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
     else:
         print(f'❌ 命令错误: {error}')
-        await ctx.send(f'发生错误: {error}')
+        # ✅ 关键修改：不在错误处理里发消息，避免重复
+        pass
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
