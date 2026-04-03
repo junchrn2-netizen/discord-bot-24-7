@@ -58,7 +58,7 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     return best_cat, best_role, best_global
 
 
-# 🔐 权限检查：只有指定类别能使用
+# 🔐 权限检查：只要属于指定类别就有权限！
 def has_permission(ctx):
     cat, _, _ = get_member_rank_info(ctx.author)
     return cat in ALLOWED_CATEGORIES
@@ -223,18 +223,14 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
-    if op_global <= tgt_global:
-        await ctx.send("❌ 你只能晋升比你低的。")
-        return
+    # 🔓 去掉等级限制！只要类别对就能用！
+    # if op_global <= tgt_global:
+    #     await ctx.send("❌ 你只能晋升比你低的。")
+    #     return
 
     new_role = get_next_rank(tgt_cat, tgt_role)
     if new_role is None:
         await ctx.send(f"❌ 已经是最高级了。")
-        return
-
-    new_global = GLOBAL_RANK_ORDER.index(new_role)
-    if new_global >= op_global:
-        await ctx.send(f"❌ 目标职级不低于你。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "promote", tgt_cat)
@@ -270,9 +266,10 @@ async def demote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
-    if op_global <= tgt_global:
-        await ctx.send("❌ 你只能降级比你低的。")
-        return
+    # 🔓 去掉等级限制！只要类别对就能用！
+    # if op_global <= tgt_global:
+    #     await ctx.send("❌ 你只能降级比你低的。")
+    #     return
 
     new_role = get_prev_rank(tgt_cat, tgt_role)
     if new_role is None:
