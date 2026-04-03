@@ -130,7 +130,7 @@ async def apply_rank_change(
                 break
 
     if new_role is None:
-        await ctx.send(f"❌ 错误：服务器里找不到角色「{new_role_name}」！请检查角色名称是否完全一致。")
+        await ctx.send(f"❌ 错误：找不到角色「{new_role_name}」！")
         return
 
     # 📋 收集要删除的角色
@@ -144,16 +144,10 @@ async def apply_rank_change(
                 break
 
     try:
-        # ➕ 添加新角色
+        # ➕ 先加新角色
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
-        
-        # ✅ 正确刷新角色列表
-        await target.fetch_roles()
-        if new_role not in target.roles:
-            await ctx.send(f"❌ 失败！角色「{new_role_name}」添加成功但读取不到，可能是机器人权限太低或网络问题。")
-            return
 
-        # 🗑️ 删除旧角色
+        # 🗑️ 再删旧角色
         if roles_to_remove:
             await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup by {ctx.author}")
 
@@ -166,10 +160,10 @@ async def apply_rank_change(
         await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
     except discord.Forbidden:
-        await ctx.send("❌ 权限错误！请把机器人角色拖到角色列表最顶端，并确保拥有「管理角色」权限。")
+        await ctx.send("❌ 权限不足！请把机器人角色拖到最顶部！")
         return
     except discord.HTTPException as e:
-        await ctx.send(f"❌ 网络错误: {e}")
+        await ctx.send(f"❌ 操作失败: {e}")
         return
 
 
@@ -303,11 +297,8 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ 未找到成员，请确认 @ 了正确的用户。")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
-    elif isinstance(error, commands.CommandInvokeError):
-        # 不重复显示内部错误
-        print(f'❌ 命令执行错误: {error.original}')
     else:
-        print(f'❌ 未知错误: {error}')
+        print(f'❌ 命令错误: {error}')
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
