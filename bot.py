@@ -17,7 +17,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # 职级体系配置
 # ─────────────────────────────────────────────
 
-# 所有职级，按类别分组，每组内从低到高排列
 RANK_CATEGORIES = {
     "LR": ["服务领队", "初级管理员", "高级管理员"],
     "MR": ["主管", "经理"],
@@ -27,28 +26,20 @@ RANK_CATEGORIES = {
     "Ownership": ["社区经理", "副服主", "服主", "持有者"],
 }
 
-# 扁平化的全局职级列表（从低到高），用于跨类别权限比较
 GLOBAL_RANK_ORDER: list[str] = []
 for _ranks in RANK_CATEGORIES.values():
     GLOBAL_RANK_ORDER.extend(_ranks)
 
-# 晋升日志频道 / 服务器配置
 LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
 
 
 def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None, int]:
-    """
-    返回成员当前职级的 (category_name, role_name, global_index)。
-    若成员没有任何已知职级，返回 (None, None, -1)。
-    当成员拥有多个职级时，取全局排序最高的那个。
-    """
     best_global = -1
     best_role = None
     best_cat = None
 
     for role in member.roles:
-        # 跳过 everyone 避免干扰
         if role.name == "@everyone":
             continue
         for rank_name in GLOBAL_RANK_ORDER:
@@ -66,7 +57,6 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
 
 
 def get_next_rank(category: str, current_role: str) -> str | None:
-    """返回同类别中的下一个（更高）职级，若已是最高则返回 None。"""
     ranks = RANK_CATEGORIES[category]
     idx = ranks.index(current_role)
     if idx + 1 < len(ranks):
@@ -75,7 +65,6 @@ def get_next_rank(category: str, current_role: str) -> str | None:
 
 
 def get_prev_rank(category: str, current_role: str) -> str | None:
-    """返回同类别中的上一个（更低）职级，若已是最低则返回 None。"""
     ranks = RANK_CATEGORIES[category]
     idx = ranks.index(current_role)
     if idx - 1 >= 0:
@@ -92,7 +81,6 @@ async def send_rank_log(
     new_role: str,
     category: str,
 ) -> None:
-    """向日志频道发送晋升/降级记录。"""
     log_guild = bot.get_guild(LOG_GUILD_ID)
     if log_guild is None:
         return
@@ -127,13 +115,9 @@ async def apply_rank_change(
     action: str,
     category: str,
 ) -> None:
-    """
-    给目标成员添加新职级角色，并移除其所有已知职级角色（新职级除外）。
-    **终极修复：先找 -> 再加 -> 检查 -> 最后删**
-    """
     guild = ctx.guild
 
-    # 🔍 第一步：找到新角色
+    # 🔍 查找角色
     new_role = None
     for role in guild.roles:
         if role.name == new_role_name:
@@ -146,10 +130,10 @@ async def apply_rank_change(
                 break
 
     if new_role is None:
-        await ctx.send(f"❌ 未找到角色「{new_role_name}」，请确认服务器中已创建该角色。")
+        await ctx.send(f"❌ 错误：服务器里找不到角色「{new_role_name}」！请检查角色名称是否完全一致。")
         return
 
-    # 📋 收集要删除的旧角色
+    # 📋 收集要删除的角色
     roles_to_remove = []
     for role in target.roles:
         if role.name == "@everyone":
@@ -160,38 +144,37 @@ async def apply_rank_change(
                 break
 
     try:
-        # ➕ 第二步：先加新角色
+        # ➕ 添加新角色
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
-
-        # ✅ 第三步：刷新并检查是否真的加上了
+        
+        # ✅ 检查是否成功
         await target.refresh()
         if new_role not in target.roles:
-            await ctx.send(f"❌ 添加失败！角色「{new_role_name}」未成功授予，请重试。")
+            await ctx.send(f"❌ 失败！角色「{new_role_name}」添加成功但读取不到，可能是机器人权限太低或网络问题。")
             return
 
-        # 🗑️ 第四步：确认加上了，再安全删除旧角色
+        # 🗑️ 删除旧角色
         if roles_to_remove:
             await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup by {ctx.author}")
 
-        # 🎉 最后才发成功提示
+        # 🎉 成功提示
         action_label = "晋升" if action == "promote" else "降级"
         action_emoji = "⬆️" if action == "promote" else "⬇️"
         await ctx.send(
-            f"{action_emoji} 已将 **{target.display_name}** 从「{old_role_name}」{action_label}至「{new_role_name}」。"
+            f"{action_emoji} 成功！**{target.display_name}** 从「{old_role_name}」→「{new_role_name}」"
         )
         await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
     except discord.Forbidden:
-        await ctx.send("❌ 权限不足！请把机器人角色拖到角色列表最顶部。")
+        await ctx.send("❌ 权限错误！请把机器人角色拖到角色列表最顶端，并确保拥有「管理角色」权限。")
         return
     except discord.HTTPException as e:
-        await ctx.send(f"❌ 操作失败: {e}")
+        await ctx.send(f"❌ 网络错误: {e}")
         return
 
 
 @bot.event
 async def on_ready():
-    """机器人上线时触发"""
     print(f'✅ 机器人已上线: {bot.user}')
     print(f'ID: {bot.user.id}')
     await bot.change_presence(
@@ -205,26 +188,19 @@ async def on_ready():
 
 @tasks.loop(minutes=5)
 async def keep_alive():
-    """定期心跳，保持连接活跃"""
     print(f'💓 心跳检测: {bot.user}')
 
 @bot.command(name='ping')
 async def ping(ctx):
-    """简单的ping命令"""
     latency = round(bot.latency * 1000)
     await ctx.send(f'🏓 Pong! 延迟: {latency}ms')
 
 @bot.command(name='status')
 async def status(ctx):
-    """检查机器人状态"""
     await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
 
-# ─────────────────────────────────────────────
-# 查看自己角色的调试命令（纯文字，不艾特，不显示everyone）
-# ─────────────────────────────────────────────
 @bot.command(name='myroles')
 async def myroles(ctx):
-    """查看自己拥有的所有角色名称，用于调试"""
     role_names = []
     for role in ctx.author.roles:
         if role.name != "@everyone":
@@ -240,10 +216,9 @@ async def myroles(ctx):
 
 @bot.command(name='promote')
 async def promote(ctx, member: discord.Member = None):
-    """
-    将目标成员晋升至同类别的下一个职级。
-    用法: !promote @用户
-    """
+    # 🚨 立即响应，防止卡住
+    await ctx.send("🔄 正在执行晋升操作...")
+
     if member is None:
         await ctx.send("❌ 用法: `!promote @用户`")
         return
@@ -290,10 +265,8 @@ async def promote(ctx, member: discord.Member = None):
 
 @bot.command(name='demote')
 async def demote(ctx, member: discord.Member = None):
-    """
-    将目标成员降级至同类别的上一个职级。
-    用法: !demote @用户
-    """
+    await ctx.send("🔄 正在执行降级操作...")
+
     if member is None:
         await ctx.send("❌ 用法: `!demote @用户`")
         return
@@ -331,14 +304,13 @@ async def demote(ctx, member: discord.Member = None):
 
 @bot.event
 async def on_command_error(ctx, error):
-    """错误处理"""
     if isinstance(error, commands.MemberNotFound):
         await ctx.send(f"❌ 未找到成员，请确认 @ 了正确的用户。")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
     else:
         print(f'❌ 命令错误: {error}')
-        # 不在错误处理里发消息，避免重复
+        await ctx.send(f"❌ 发生未知错误: {error}")
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
