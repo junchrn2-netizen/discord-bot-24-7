@@ -42,14 +42,13 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     返回成员当前职级的 (category_name, role_name, global_index)。
     若成员没有任何已知职级，返回 (None, None, -1)。
     当成员拥有多个职级时，取全局排序最高的那个。
-    **修改：支持模糊匹配，只要角色名包含关键字即可**
+    **模糊匹配，只要包含关键字即可**
     """
     best_global = -1
     best_role = None
     best_cat = None
 
     for role in member.roles:
-        # 遍历所有定义的职级名称，只要角色名包含其中任意一个，就算匹配
         for rank_name in GLOBAL_RANK_ORDER:
             if rank_name in role.name:
                 idx = GLOBAL_RANK_ORDER.index(rank_name)
@@ -59,7 +58,7 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
                     best_cat = next(
                         cat for cat, ranks in RANK_CATEGORIES.items() if rank_name in ranks
                     )
-                break  # 一个角色只匹配第一个符合的职级
+                break
 
     return best_cat, best_role, best_global
 
@@ -133,7 +132,7 @@ async def apply_rank_change(
     """
     guild = ctx.guild
 
-    # 查找新职级对应的 Role 对象（加强版，确保能找到）
+    # 查找新职级对应的 Role 对象（加强版）
     new_role = None
     # 先精确匹配
     for role in guild.roles:
@@ -166,6 +165,7 @@ async def apply_rank_change(
         # 成功提示
         action_label = "晋升" if action == "promote" else "降级"
         action_emoji = "⬆️" if action == "promote" else "⬇️"
+        # 只显示名称，不 @
         await ctx.send(
             f"{action_emoji} 已将 **{target.display_name}** 从「{old_role_name}」{action_label}至「{new_role_name}」。"
         )
@@ -212,12 +212,13 @@ async def status(ctx):
     await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
 
 # ─────────────────────────────────────────────
-# 查看自己角色的调试命令（已修复：不艾特任何人）
+# 查看自己角色的调试命令（已修复：纯文字，不艾特）
 # ─────────────────────────────────────────────
 @bot.command(name='myroles')
 async def myroles(ctx):
     """查看自己拥有的所有角色名称，用于调试"""
     roles = [role.name for role in ctx.author.roles]
+    # 纯文字发送，不触发任何提及
     await ctx.send(f"🔍 你的角色列表：\n{', '.join(roles)}")
     await ctx.send(f"📋 系统定义的职级：\n{', '.join(GLOBAL_RANK_ORDER)}")
 
