@@ -32,9 +32,6 @@ GLOBAL_RANK_ORDER: list[str] = []
 for _ranks in RANK_CATEGORIES.values():
     GLOBAL_RANK_ORDER.extend(_ranks)
 
-# 所有职级名称的集合，用于快速查找
-ALL_RANK_NAMES: set[str] = set(GLOBAL_RANK_ORDER)
-
 # 晋升日志频道 / 服务器配置
 LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
@@ -45,20 +42,24 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     返回成员当前职级的 (category_name, role_name, global_index)。
     若成员没有任何已知职级，返回 (None, None, -1)。
     当成员拥有多个职级时，取全局排序最高的那个。
+    **修改：支持模糊匹配，只要角色名包含关键字即可**
     """
     best_global = -1
     best_role = None
     best_cat = None
 
     for role in member.roles:
-        if role.name in ALL_RANK_NAMES:
-            idx = GLOBAL_RANK_ORDER.index(role.name)
-            if idx > best_global:
-                best_global = idx
-                best_role = role.name
-                best_cat = next(
-                    cat for cat, ranks in RANK_CATEGORIES.items() if role.name in ranks
-                )
+        # 遍历所有定义的职级名称，只要角色名包含其中任意一个，就算匹配
+        for rank_name in GLOBAL_RANK_ORDER:
+            if rank_name in role.name:
+                idx = GLOBAL_RANK_ORDER.index(rank_name)
+                if idx > best_global:
+                    best_global = idx
+                    best_role = rank_name
+                    best_cat = next(
+                        cat for cat, ranks in RANK_CATEGORIES.items() if rank_name in ranks
+                    )
+                break  # 一个角色只匹配第一个符合的职级
 
     return best_cat, best_role, best_global
 
@@ -106,8 +107,9 @@ async def send_rank_log(
         title=f"{action_emoji} 职级{action_label}记录",
         color=color,
     )
-    embed.add_field(name="操作人", value=f"{operator.mention} (`{operator}`)", inline=False)
-    embed.add_field(name="目标成员", value=f"{target.mention} (`{target}`)", inline=False)
+    # 只显示名称，不 @
+    embed.add_field(name="操作人", value=f"{operator} (`{operator.display_name}`)", inline=False)
+    embed.add_field(name="目标成员", value=f"{target} (`{target.display_name}`)", inline=False)
     embed.add_field(name="职级类别", value=category, inline=True)
     embed.add_field(name="原职级", value=old_role, inline=True)
     embed.add_field(name="新职级", value=new_role, inline=True)
@@ -131,16 +133,24 @@ async def apply_rank_change(
     """
     guild = ctx.guild
 
-    # 查找新职级对应的 Role 对象
-    new_role = discord.utils.get(guild.roles, name=new_role_name)
+    # 查找新职级对应的 Role 对象（同样支持模糊匹配）
+    new_role = None
+    for role in guild.roles:
+        if new_role_name in role.name:
+            new_role = role
+            break
+
     if new_role is None:
-        await ctx.send(f"❌ 未找到职级角色「{new_role_name}」，请确认服务器中已创建该角色。")
+        await ctx.send(f"❌ 未找到包含「{new_role_name}」的角色，请确认服务器中已创建该角色。")
         return
 
     # 收集目标成员当前持有的所有已知职级角色（排除新职级）
-    roles_to_remove = [
-        r for r in target.roles if r.name in ALL_RANK_NAMES and r.name != new_role_name
-    ]
+    roles_to_remove = []
+    for role in target.roles:
+        for rank_name in GLOBAL_RANK_ORDER:
+            if rank_name in role.name and rank_name != new_role_name:
+                roles_to_remove.append(role)
+                break
 
     try:
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
@@ -155,8 +165,9 @@ async def apply_rank_change(
 
     action_label = "晋升" if action == "promote" else "降级"
     action_emoji = "⬆️" if action == "promote" else "⬇️"
+    # 只显示名称，不 @
     await ctx.send(
-        f"{action_emoji} 已将 {target.mention} 从「{old_role_name}」{action_label}至「{new_role_name}」。"
+        f"{action_emoji} 已将 **{target.display_name}** 从「{old_role_name}」{action_label}至「{new_role_name}」。"
     )
 
     await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
@@ -195,14 +206,14 @@ async def status(ctx):
     await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
 
 # ─────────────────────────────────────────────
-# 新增：查看自己角色的调试命令
+# 查看自己角色的调试命令
 # ─────────────────────────────────────────────
 @bot.command(name='myroles')
 async def myroles(ctx):
     """查看自己拥有的所有角色名称，用于调试"""
     roles = [role.name for role in ctx.author.roles]
     await ctx.send(f"🔍 你的角色列表：\n{', '.join(roles)}")
-    await ctx.send(f"📋 系统定义的职级：\n{', '.join(ALL_RANK_NAMES)}")
+    await ctx.send(f"📋 系统定义的职级：\n{', '.join(GLOBAL_RANK_ORDER)}")
 
 
 # ─────────────────────────────────────────────
@@ -241,7 +252,7 @@ async def promote(ctx, member: discord.Member = None):
 
     # 目标必须拥有已知职级
     if tgt_role is None:
-        await ctx.send(f"❌ {member.mention} 没有任何已知职级，无法晋升。")
+        await ctx.send(f"❌ **{member.display_name}** 没有任何已知职级，无法晋升。")
         return
 
     # 操作人必须高于目标
@@ -252,13 +263,13 @@ async def promote(ctx, member: discord.Member = None):
     # 获取晋升后的职级
     new_role = get_next_rank(tgt_cat, tgt_role)
     if new_role is None:
-        await ctx.send(f"❌ {member.mention} 已是「{tgt_cat}」类别的最高职级（{tgt_role}），无法继续晋升。")
+        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最高职级（{tgt_role}），无法继续晋升。")
         return
 
     # 晋升后的职级不能超过或等于操作人的职级
     new_global = GLOBAL_RANK_ORDER.index(new_role)
     if new_global >= op_global:
-        await ctx.send(f"❌ 无法将 {member.mention} 晋升至「{new_role}」，该职级不低于你的当前职级。")
+        await ctx.send(f"❌ 无法将 **{member.display_name}** 晋升至「{new_role}」，该职级不低于你的当前职级。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "promote", tgt_cat)
@@ -300,7 +311,7 @@ async def demote(ctx, member: discord.Member = None):
 
     # 目标必须拥有已知职级
     if tgt_role is None:
-        await ctx.send(f"❌ {member.mention} 没有任何已知职级，无法降级。")
+        await ctx.send(f"❌ **{member.display_name}** 没有任何已知职级，无法降级。")
         return
 
     # 操作人必须高于目标
@@ -311,7 +322,7 @@ async def demote(ctx, member: discord.Member = None):
     # 获取降级后的职级
     new_role = get_prev_rank(tgt_cat, tgt_role)
     if new_role is None:
-        await ctx.send(f"❌ {member.mention} 已是「{tgt_cat}」类别的最低职级（{tgt_role}），无法继续降级。")
+        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最低职级（{tgt_role}），无法继续降级。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "demote", tgt_cat)
