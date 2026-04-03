@@ -8,7 +8,7 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ─────────────────────────────────────────────
-# 🔰 职级配置
+# 🔰 职级体系配置
 # ─────────────────────────────────────────────
 
 RANK_CATEGORIES = {
@@ -20,14 +20,17 @@ RANK_CATEGORIES = {
     "Ownership": ["社区经理", "副服主", "服主", "持有者"],
 }
 
-ALLOWED_CATEGORIES = ["SHR", "Leadership", "Ownership"]
-GLOBAL_RANK_ORDER = [r for ranks in RANK_CATEGORIES.values() for r in ranks]
+# 把所有职级展开成一个列表
+ALL_RANKS = [rank for ranks in RANK_CATEGORIES.values() for rank in ranks]
+
+# 🎯 权限关键字：只要角色名包含这些词，就能使用命令
+PERMISSION_KEYWORDS = ["hr", "shr", "leadership", "ownership", "初级公司", "执行实习生", "执行官", "副总裁", "总裁", "副主席", "主席", "星球委员会", "执行委员会", "外星委员会", "领导力实习生", "社区官员", "专员", "社区经理", "副服主", "服主", "持有者"]
 
 LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
 
 
-# 🔍 找角色：只要包含关键词就好
+# 🔍 找角色：只要包含关键词就返回
 def find_role(guild, name):
     name_low = name.lower()
     for role in guild.roles:
@@ -40,7 +43,7 @@ def find_role(guild, name):
 def get_user_rank(member):
     for role in member.roles:
         role_low = role.name.lower()
-        for rank in GLOBAL_RANK_ORDER:
+        for rank in ALL_RANKS:
             if rank.lower() in role_low:
                 return rank
     return None
@@ -52,6 +55,16 @@ def get_category(rank_name):
         if rank_name in ranks:
             return cat
     return None
+
+
+# 🔐 权限检查：只要角色名包含关键字就有权限
+def has_permission(member):
+    for role in member.roles:
+        role_low = role.name.lower()
+        for keyword in PERMISSION_KEYWORDS:
+            if keyword.lower() in role_low:
+                return True
+    return False
 
 
 # ⬆️ 下一个职位
@@ -106,18 +119,20 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send("❌ 用法: !promote @用户")
         return
 
-    my_rank = get_user_rank(ctx.author)
-    target_rank = get_user_rank(member)
-
-    if not my_rank or get_category(my_rank) not in ALLOWED_CATEGORIES:
+    # 🔐 权限检查
+    if not has_permission(ctx.author):
         await ctx.send("❌ 你没有权限使用此命令！")
         return
+
+    my_rank = get_user_rank(ctx.author)
+    target_rank = get_user_rank(member)
 
     if not target_rank:
         await ctx.send(f"❌ {member.display_name} 没有职位！")
         return
 
-    if GLOBAL_RANK_ORDER.index(my_rank) <= GLOBAL_RANK_ORDER.index(target_rank):
+    # 只能操作职级比自己低的
+    if ALL_RANKS.index(my_rank) <= ALL_RANKS.index(target_rank):
         await ctx.send("❌ 你只能晋升职级低于你的成员！")
         return
 
@@ -134,9 +149,9 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ 找不到角色：{new_rank_name}")
         return
 
-    # 🚨 安全检查：必须先加后删！加不上就不删！
+    # 🚨 安全机制：先加后删，加不上就不删！
     try:
-        # ✅ 第一步：先加新角色
+        # ✅ 第一步：先给新角色
         await member.add_roles(new_role)
         print(f"✅ 已给: {new_role.name}")
 
@@ -144,9 +159,9 @@ async def promote(ctx, member: discord.Member = None):
         member = await ctx.guild.fetch_member(member.id)
         if new_role not in member.roles:
             await ctx.send(f"❌ 失败！无法添加 {new_rank_name}！旧角色已保留！")
-            return  # ❌ 加不上就停止，绝对不删旧的！
+            return
 
-        # ✅ 第二步：再加删旧角色
+        # ✅ 第二步：再删旧角色
         if old_role:
             await member.remove_roles(old_role)
             print(f"✅ 已删: {old_role.name}")
@@ -169,18 +184,20 @@ async def demote(ctx, member: discord.Member = None):
         await ctx.send("❌ 用法: !demote @用户")
         return
 
-    my_rank = get_user_rank(ctx.author)
-    target_rank = get_user_rank(member)
-
-    if not my_rank or get_category(my_rank) not in ALLOWED_CATEGORIES:
+    # 🔐 权限检查
+    if not has_permission(ctx.author):
         await ctx.send("❌ 你没有权限使用此命令！")
         return
+
+    my_rank = get_user_rank(ctx.author)
+    target_rank = get_user_rank(member)
 
     if not target_rank:
         await ctx.send(f"❌ {member.display_name} 没有职位！")
         return
 
-    if GLOBAL_RANK_ORDER.index(my_rank) <= GLOBAL_RANK_ORDER.index(target_rank):
+    # 只能操作职级比自己低的
+    if ALL_RANKS.index(my_rank) <= ALL_RANKS.index(target_rank):
         await ctx.send("❌ 你只能降级职级低于你的成员！")
         return
 
@@ -197,9 +214,9 @@ async def demote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ 找不到角色：{new_rank_name}")
         return
 
-    # 🚨 安全检查：必须先加后删！加不上就不删！
+    # 🚨 安全机制：先加后删，加不上就不删！
     try:
-        # ✅ 第一步：先加新角色
+        # ✅ 第一步：先给新角色
         await member.add_roles(new_role)
         print(f"✅ 已给: {new_role.name}")
 
@@ -207,9 +224,9 @@ async def demote(ctx, member: discord.Member = None):
         member = await ctx.guild.fetch_member(member.id)
         if new_role not in member.roles:
             await ctx.send(f"❌ 失败！无法添加 {new_rank_name}！旧角色已保留！")
-            return  # ❌ 加不上就停止，绝对不删旧的！
+            return
 
-        # ✅ 第二步：再加删旧角色
+        # ✅ 第二步：再删旧角色
         if old_role:
             await member.remove_roles(old_role)
             print(f"✅ 已删: {old_role.name}")
