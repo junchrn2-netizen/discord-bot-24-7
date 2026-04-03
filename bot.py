@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
-# 设置机器人意图
-intents = discord.Intents.default()
+# 意图全开
+intents = discord.Intents.all()
 intents.message_content = True
 intents.members = True
 
@@ -21,12 +21,13 @@ RANK_CATEGORIES = {
     "LR": ["服务领队", "初级管理员", "高级管理员"],
     "MR": ["主管", "经理"],
     "HR": ["初级公司", "执行实习生", "执行官", "副总裁", "总裁"],
+    # ✅ 这里顺序绝对正确！副主席 -> 主席
     "SHR": ["副主席", "主席", "星球委员会", "执行委员会", "外星委员会"],
     "Leadership": ["领导力实习生", "社区官员", "专员"],
     "Ownership": ["社区经理", "副服主", "服主", "持有者"],
 }
 
-# 允许使用晋升/降级命令的类别
+# 允许使用命令的类别
 ALLOWED_CATEGORIES = ["SHR", "Leadership", "Ownership"]
 
 GLOBAL_RANK_ORDER: list[str] = []
@@ -45,8 +46,7 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
     for role in member.roles:
         if role.name == "@everyone":
             continue
-            
-        # ✅ 核心逻辑：只要包含中文关键词就算数！
+        # ✅ 只要包含中文就算数
         for rank_name in GLOBAL_RANK_ORDER:
             if rank_name in role.name:
                 idx = GLOBAL_RANK_ORDER.index(rank_name)
@@ -70,8 +70,17 @@ def has_permission(ctx):
 def get_next_rank(category: str, current_role: str) -> str | None:
     ranks = RANK_CATEGORIES[category]
     idx = ranks.index(current_role)
+    
+    # ✅ 强制调试输出
+    print(f"DEBUG: 当前类别={category}, 当前职位={current_role}, 索引={idx}")
+    print(f"DEBUG: 列表={ranks}")
+    
     if idx + 1 < len(ranks):
-        return ranks[idx + 1]
+        next_r = ranks[idx + 1]
+        print(f"DEBUG: 下一个职位={next_r}")
+        return next_r
+    
+    print(f"DEBUG: 已经是最后一个了！")
     return None
 
 
@@ -128,7 +137,7 @@ async def apply_rank_change(
 ) -> None:
     guild = ctx.guild
 
-    # 🔍 找新角色：只要包含中文就算数！
+    # 🔍 找新角色
     new_role = None
     for role in guild.roles:
         if new_role_name in role.name:
@@ -140,7 +149,7 @@ async def apply_rank_change(
         return
 
     try:
-        # ➕ 只加不删！
+        # ➕ 只加不删
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
 
         # 🎉 成功
