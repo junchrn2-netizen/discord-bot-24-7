@@ -1,23 +1,18 @@
-import Discord from "discord.js";
+import discord
+from discord.ext import commands
+import time
 
-const client = new Discord.Client({
-    intents: [
-        "Guilds",
-        "GuildMessages",
-        "MessageContent",
-        "GuildMembers"
-    ]
-});
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-const PREFIX = "!";
-const LOG_CHANNEL_ID = "1454209918432182404";
+LOG_CHANNEL_ID = 1454209918432182404
 
 
-// ========================
-// 等级顺序（从低到高）
-// ========================
+# ========================
+# 等级顺序
+# ========================
 
-const RANK_ORDER = [
+RANK_ORDER = [
 
     "服务领队",
     "初级管理员",
@@ -47,263 +42,220 @@ const RANK_ORDER = [
     "共同所有人",
     "所有者",
     "持有者"
-];
+]
 
 
-// ========================
-// 档次
-// ========================
+# ========================
+# 档次
+# ========================
 
-const RANK_TIERS = [
+RANK_TIERS = [
 
-    { keyword: "LR", min: 0, max: 2 },
-    { keyword: "MR", min: 3, max: 4 },
-    { keyword: "HR", min: 5, max: 9 },
-    { keyword: "SHR", min: 10, max: 15 },
-    { keyword: "Leadership Rank", min: 16, max: 18 },
-    { keyword: "Ownership Rank", min: 19, max: 22 }
+    ("LR", 0, 2),
+    ("MR", 3, 4),
+    ("HR", 5, 9),
+    ("SHR", 10, 15),
+    ("Leadership Rank", 16, 18),
+    ("Ownership Rank", 19, 22)
+]
 
-];
 
+# ========================
+# 获取职位
+# ========================
 
-// ========================
-// 获取职位（模糊识别）
-// ========================
+def get_user_rank(member):
 
-function getUserRank(member) {
+    for role in member.roles:
 
-    for (let role of member.roles.cache.values()) {
+        role_name = role.name.lower()
 
-        let roleName = role.name.toLowerCase();
+        for i, rank in enumerate(RANK_ORDER):
 
-        for (let i = 0; i < RANK_ORDER.length; i++) {
+            if rank.lower() in role_name:
 
-            if (roleName.includes(RANK_ORDER[i].toLowerCase())) {
+                return i, rank, role
 
-                return {
-                    index: i,
-                    name: RANK_ORDER[i],
-                    role: role
-                };
-            }
-        }
-    }
+    return None, None, None
 
-    return null;
-}
 
+def find_role(guild, name):
 
-// ========================
-// 找角色
-// ========================
+    for role in guild.roles:
+        if name in role.name:
+            return role
 
-function findRole(guild, name) {
+    return None
 
-    return guild.roles.cache.find(
-        r => r.name.includes(name)
-    );
-}
 
+def get_tier(index):
 
-// ========================
-// 获取档次
-// ========================
+    for tier, min_i, max_i in RANK_TIERS:
 
-function getTier(index) {
+        if min_i <= index <= max_i:
+            return tier
 
-    for (let tier of RANK_TIERS) {
+    return "Unknown"
 
-        if (index >= tier.min && index <= tier.max) {
 
-            return tier.keyword;
-        }
-    }
+# ========================
+# 启动
+# ========================
 
-    return "Unknown";
-}
+@bot.event
+async def on_ready():
 
+    print(f"机器人上线: {bot.user}")
 
-// ========================
-// 启动
-// ========================
 
-client.once("ready", () => {
+# ========================
+# myrank
+# ========================
 
-    console.log(`机器人上线: ${client.user.tag}`);
-});
+@bot.command()
+async def myrank(ctx):
 
+    idx, name, role = get_user_rank(ctx.author)
 
-// ========================
-// 指令系统
-// ========================
+    if name is None:
+        await ctx.send("未检测到职位")
+        return
 
-client.on("messageCreate", async (msg) => {
+    await ctx.send(
+        f"你的职位: {name}\n等级: {idx}\n档次: {get_tier(idx)}"
+    )
 
-    if (msg.author.bot) return;
-    if (!msg.content.startsWith(PREFIX)) return;
 
-    const args = msg.content.slice(PREFIX.length).trim().split(/ +/);
-    const cmd = args.shift().toLowerCase();
+# ========================
+# promote
+# ========================
 
+@bot.command()
+async def promote(ctx, member: discord.Member):
 
-    // ========================
-    // 查看职位
-    // ========================
+    if member == ctx.author:
+        await ctx.send("不能晋升自己")
+        return
 
-    if (cmd === "myrank") {
+    my_idx, my_name, _ = get_user_rank(ctx.author)
+    t_idx, t_name, t_role = get_user_rank(member)
 
-        const info = getUserRank(msg.member);
+    if my_name is None:
+        await ctx.send("你没有职位")
+        return
 
-        if (!info) {
-            return msg.reply("未检测到职位");
-        }
+    if t_name is None:
+        await ctx.send("目标没有职位")
+        return
 
-        msg.reply(
-            `你的职位: ${info.name}\n等级: ${info.index}\n档次: ${getTier(info.index)}`
-        );
-    }
+    if my_idx < 10:
+        await ctx.send("只有 SHR / Leadership / Ownership 可以晋升")
+        return
 
+    if t_idx >= my_idx:
+        await ctx.send("不能晋升同级或更高职位的人")
+        return
 
-    // ========================
-    // 晋升
-    // ========================
+    next_index = t_idx + 1
 
-    if (cmd === "promote") {
+    if next_index >= len(RANK_ORDER):
+        await ctx.send("已经最高职位")
+        return
 
-        const target = msg.mentions.members.first();
+    new_role = find_role(ctx.guild, RANK_ORDER[next_index])
 
-        if (!target) return msg.reply("请@成员");
+    if not new_role:
+        await ctx.send("找不到下一级职位")
+        return
 
-        if (target.id === msg.author.id) {
-            return msg.reply("不能晋升自己");
-        }
+    await member.remove_roles(t_role)
+    await member.add_roles(new_role)
 
-        const myRank = getUserRank(msg.member);
-        const targetRank = getUserRank(target);
+    await ctx.send(
+        f"成功晋升 {member.name}\n{t_name} → {RANK_ORDER[next_index]}"
+    )
 
-        if (!myRank) return msg.reply("你没有职位");
-        if (!targetRank) return msg.reply("目标没有职位");
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
-        // SHR权限
+    if log_channel:
 
-        if (myRank.index < 10) {
-            return msg.reply("只有 SHR / Leadership / Ownership 可以晋升");
-        }
+        await log_channel.send(
+f"""📈 晋升记录
 
-        // 不能操作同级或更高
+操作人: {ctx.author}
+目标: {member}
 
-        if (targetRank.index >= myRank.index) {
-            return msg.reply("不能晋升同级或更高职位的人");
-        }
+原职位: {t_name}
+新职位: {RANK_ORDER[next_index]}
 
-        const nextIndex = targetRank.index + 1;
+时间: <t:{int(time.time())}:F>"""
+        )
 
-        if (nextIndex >= RANK_ORDER.length) {
-            return msg.reply("已经是最高职位");
-        }
 
-        const newRole = findRole(msg.guild, RANK_ORDER[nextIndex]);
+# ========================
+# demote
+# ========================
 
-        if (!newRole) return msg.reply("找不到下一级职位");
+@bot.command()
+async def demote(ctx, member: discord.Member):
 
-        await target.roles.remove(targetRank.role);
-        await target.roles.add(newRole);
+    if member == ctx.author:
+        await ctx.send("不能降级自己")
+        return
 
-        msg.channel.send(
-            `成功晋升 ${target.user.username}\n${targetRank.name} → ${RANK_ORDER[nextIndex]}`
-        );
+    my_idx, my_name, _ = get_user_rank(ctx.author)
+    t_idx, t_name, t_role = get_user_rank(member)
 
-        // 日志
+    if my_name is None:
+        await ctx.send("你没有职位")
+        return
 
-        const logChannel = msg.guild.channels.cache.get(LOG_CHANNEL_ID);
+    if t_name is None:
+        await ctx.send("目标没有职位")
+        return
 
-        if (logChannel) {
+    if my_idx < 10:
+        await ctx.send("只有 SHR / Leadership / Ownership 可以降级")
+        return
 
-            logChannel.send(
-`📈 晋升记录
+    if t_idx >= my_idx:
+        await ctx.send("不能降级同级或更高职位的人")
+        return
 
-操作人: ${msg.author.tag}
-目标: ${target.user.tag}
+    prev_index = t_idx - 1
 
-原职位: ${targetRank.name}
-新职位: ${RANK_ORDER[nextIndex]}
+    if prev_index < 0:
+        await ctx.send("已经最低职位")
+        return
 
-时间: <t:${Math.floor(Date.now()/1000)}:F>`
-            );
-        }
-    }
+    new_role = find_role(ctx.guild, RANK_ORDER[prev_index])
 
+    if not new_role:
+        await ctx.send("找不到下一级职位")
+        return
 
-    // ========================
-    // 降级
-    // ========================
+    await member.remove_roles(t_role)
+    await member.add_roles(new_role)
 
-    if (cmd === "demote") {
+    await ctx.send(
+        f"成功降级 {member.name}\n{t_name} → {RANK_ORDER[prev_index]}"
+    )
 
-        const target = msg.mentions.members.first();
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
 
-        if (!target) return msg.reply("请@成员");
+    if log_channel:
 
-        if (target.id === msg.author.id) {
-            return msg.reply("不能降级自己");
-        }
+        await log_channel.send(
+f"""📉 降级记录
 
-        const myRank = getUserRank(msg.member);
-        const targetRank = getUserRank(target);
+操作人: {ctx.author}
+目标: {member}
 
-        if (!myRank) return msg.reply("你没有职位");
-        if (!targetRank) return msg.reply("目标没有职位");
+原职位: {t_name}
+新职位: {RANK_ORDER[prev_index]}
 
-        if (myRank.index < 10) {
-            return msg.reply("只有 SHR / Leadership / Ownership 可以降级");
-        }
+时间: <t:{int(time.time())}:F>"""
+        )
 
-        if (targetRank.index >= myRank.index) {
-            return msg.reply("不能降级同级或更高职位的人");
-        }
 
-        const prevIndex = targetRank.index - 1;
-
-        if (prevIndex < 0) {
-            return msg.reply("已经是最低职位");
-        }
-
-        const newRole = findRole(msg.guild, RANK_ORDER[prevIndex]);
-
-        if (!newRole) return msg.reply("找不到下一级职位");
-
-        await target.roles.remove(targetRank.role);
-        await target.roles.add(newRole);
-
-        msg.channel.send(
-            `成功降级 ${target.user.username}\n${targetRank.name} → ${RANK_ORDER[prevIndex]}`
-        );
-
-        // 日志
-
-        const logChannel = msg.guild.channels.cache.get(LOG_CHANNEL_ID);
-
-        if (logChannel) {
-
-            logChannel.send(
-`📉 降级记录
-
-操作人: ${msg.author.tag}
-目标: ${target.user.tag}
-
-原职位: ${targetRank.name}
-新职位: ${RANK_ORDER[prevIndex]}
-
-时间: <t:${Math.floor(Date.now()/1000)}:F>`
-            );
-        }
-    }
-
-});
-
-
-// ========================
-// 登录
-// ========================
-
-client.login("你的TOKEN");
+bot.run("你的TOKEN")
