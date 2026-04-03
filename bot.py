@@ -133,15 +133,22 @@ async def apply_rank_change(
     """
     guild = ctx.guild
 
-    # 查找新职级对应的 Role 对象（同样支持模糊匹配）
+    # 查找新职级对应的 Role 对象（加强版，确保能找到）
     new_role = None
+    # 先精确匹配
     for role in guild.roles:
-        if new_role_name in role.name:
+        if role.name == new_role_name:
             new_role = role
             break
+    # 精确找不到再模糊匹配
+    if new_role is None:
+        for role in guild.roles:
+            if new_role_name in role.name:
+                new_role = role
+                break
 
     if new_role is None:
-        await ctx.send(f"❌ 未找到包含「{new_role_name}」的角色，请确认服务器中已创建该角色。")
+        await ctx.send(f"❌ 未找到角色「{new_role_name}」，请确认服务器中已创建该角色。")
         return
 
     # 收集目标成员当前持有的所有已知职级角色（排除新职级）
@@ -156,21 +163,20 @@ async def apply_rank_change(
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
         if roles_to_remove:
             await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup by {ctx.author}")
+        # 成功提示
+        action_label = "晋升" if action == "promote" else "降级"
+        action_emoji = "⬆️" if action == "promote" else "⬇️"
+        await ctx.send(
+            f"{action_emoji} 已将 **{target.display_name}** 从「{old_role_name}」{action_label}至「{new_role_name}」。"
+        )
+        # 发送日志
+        await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
     except discord.Forbidden:
-        await ctx.send("❌ 机器人权限不足，无法修改该成员的角色。\n请确保机器人角色位于被修改者之上。")
+        await ctx.send("❌ 权限不足！请把机器人角色拖到角色列表最顶部。")
         return
     except discord.HTTPException as e:
-        await ctx.send(f"❌ 角色修改失败: {e}")
+        await ctx.send(f"❌ 操作失败: {e}")
         return
-
-    action_label = "晋升" if action == "promote" else "降级"
-    action_emoji = "⬆️" if action == "promote" else "⬇️"
-    # 只显示名称，不 @
-    await ctx.send(
-        f"{action_emoji} 已将 **{target.display_name}** 从「{old_role_name}」{action_label}至「{new_role_name}」。"
-    )
-
-    await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
 
 @bot.event
@@ -206,7 +212,7 @@ async def status(ctx):
     await ctx.send(f'✅ 机器人在线！\n用户: {bot.user}\nID: {bot.user.id}')
 
 # ─────────────────────────────────────────────
-# 查看自己角色的调试命令
+# 查看自己角色的调试命令（已修复：不艾特任何人）
 # ─────────────────────────────────────────────
 @bot.command(name='myroles')
 async def myroles(ctx):
@@ -247,7 +253,7 @@ async def promote(ctx, member: discord.Member = None):
 
     # 操作人必须拥有已知职级
     if op_role is None:
-        await ctx.send("❌ 你没有任何已知职级，无法执行晋升操作。\n请输入 `!myroles` 查看你的角色名称，并和系统定义对比。")
+        await ctx.send("❌ 你没有任何已知职级，无法执行晋升操作。")
         return
 
     # 目标必须拥有已知职级
@@ -263,13 +269,13 @@ async def promote(ctx, member: discord.Member = None):
     # 获取晋升后的职级
     new_role = get_next_rank(tgt_cat, tgt_role)
     if new_role is None:
-        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最高职级（{tgt_role}），无法继续晋升。")
+        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最高职级，无法继续晋升。")
         return
 
     # 晋升后的职级不能超过或等于操作人的职级
     new_global = GLOBAL_RANK_ORDER.index(new_role)
     if new_global >= op_global:
-        await ctx.send(f"❌ 无法将 **{member.display_name}** 晋升至「{new_role}」，该职级不低于你的当前职级。")
+        await ctx.send(f"❌ 无法晋升，目标职级「{new_role}」不低于你的职级。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "promote", tgt_cat)
@@ -306,7 +312,7 @@ async def demote(ctx, member: discord.Member = None):
 
     # 操作人必须拥有已知职级
     if op_role is None:
-        await ctx.send("❌ 你没有任何已知职级，无法执行降级操作。\n请输入 `!myroles` 查看你的角色名称，并和系统定义对比。")
+        await ctx.send("❌ 你没有任何已知职级，无法执行降级操作。")
         return
 
     # 目标必须拥有已知职级
@@ -322,7 +328,7 @@ async def demote(ctx, member: discord.Member = None):
     # 获取降级后的职级
     new_role = get_prev_rank(tgt_cat, tgt_role)
     if new_role is None:
-        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最低职级（{tgt_role}），无法继续降级。")
+        await ctx.send(f"❌ **{member.display_name}** 已是「{tgt_cat}」类别的最低职级，无法继续降级。")
         return
 
     await apply_rank_change(ctx, member, new_role, tgt_role, "demote", tgt_cat)
@@ -332,7 +338,7 @@ async def demote(ctx, member: discord.Member = None):
 async def on_command_error(ctx, error):
     """错误处理"""
     if isinstance(error, commands.MemberNotFound):
-        await ctx.send(f"❌ 未找到成员: {error.argument}，请确认 @ 了正确的用户。")
+        await ctx.send(f"❌ 未找到成员，请确认 @ 了正确的用户。")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
     else:
