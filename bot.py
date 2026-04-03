@@ -147,7 +147,7 @@ async def apply_rank_change(
         if roles_to_remove:
             await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup by {ctx.author}")
     except discord.Forbidden:
-        await ctx.send("❌ 机器人权限不足，无法修改该成员的角色。")
+        await ctx.send("❌ 机器人权限不足，无法修改该成员的角色。\n请确保机器人角色位于被修改者之上。")
         return
     except discord.HTTPException as e:
         await ctx.send(f"❌ 角色修改失败: {e}")
@@ -313,7 +313,7 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.MemberNotFound):
         await ctx.send(f"❌ 未找到成员: {error.argument}，请确认 @ 了正确的用户。")
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ 缺少必要参数: `{error.param.name}`")
+        await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
     else:
         print(f'❌ 命令错误: {error}')
         await ctx.send(f'发生错误: {error}')
