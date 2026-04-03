@@ -147,8 +147,8 @@ async def apply_rank_change(
         # ➕ 添加新角色
         await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
         
-        # ✅ 检查是否成功
-        await target.refresh()
+        # ✅ 正确刷新角色列表
+        await target.fetch_roles()
         if new_role not in target.roles:
             await ctx.send(f"❌ 失败！角色「{new_role_name}」添加成功但读取不到，可能是机器人权限太低或网络问题。")
             return
@@ -216,9 +216,6 @@ async def myroles(ctx):
 
 @bot.command(name='promote')
 async def promote(ctx, member: discord.Member = None):
-    # 🚨 立即响应，防止卡住
-    await ctx.send("🔄 正在执行晋升操作...")
-
     if member is None:
         await ctx.send("❌ 用法: `!promote @用户`")
         return
@@ -265,8 +262,6 @@ async def promote(ctx, member: discord.Member = None):
 
 @bot.command(name='demote')
 async def demote(ctx, member: discord.Member = None):
-    await ctx.send("🔄 正在执行降级操作...")
-
     if member is None:
         await ctx.send("❌ 用法: `!demote @用户`")
         return
@@ -308,9 +303,11 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ 未找到成员，请确认 @ 了正确的用户。")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ 缺少必要参数，请检查命令用法。")
+    elif isinstance(error, commands.CommandInvokeError):
+        # 不重复显示内部错误
+        print(f'❌ 命令执行错误: {error.original}')
     else:
-        print(f'❌ 命令错误: {error}')
-        await ctx.send(f"❌ 发生未知错误: {error}")
+        print(f'❌ 未知错误: {error}')
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
