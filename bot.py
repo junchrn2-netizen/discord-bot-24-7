@@ -166,26 +166,32 @@ async def apply_rank_change(
 
     try:
         # ✅ 第一步：先加新角色
-        print(f"🔍 尝试添加角色: {new_role.name} (位置: {new_role.position})")
+        print(f"🔍 尝试添加角色: {new_role.name} (ID: {new_role.id}, 位置: {new_role.position})")
         await target.add_roles(new_role, reason=f"{action} add {new_role_name}")
         
-        # ✅ 修复：正确的刷新方式
+        # ✅ 刷新成员信息
         target = await guild.fetch_member(target.id)
-        print(f"✅ 已添加，刷新后成员角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
+        print(f"✅ 添加后检查: {new_role_name} 是否在列表中? {new_role in target.roles}")
+        print(f"✅ 当前角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
 
         # ✅ 第二步：再删旧角色
         if old_role is not None:
-            print(f"🔍 尝试删除角色: {old_role.name}")
+            print(f"🔍 尝试删除角色: {old_role.name} (ID: {old_role.id})")
             await target.remove_roles(old_role, reason=f"{action} remove {old_role_name}")
             target = await guild.fetch_member(target.id)
-            print(f"✅ 已删除，刷新后成员角色列表: {[r.name for r in target.roles if r.name != '@everyone']}")
+            print(f"✅ 删除后检查: {old_role_name} 是否还在? {old_role not in target.roles}")
 
-        # 🎉 成功提示
-        action_label = "晋升" if action == "promote" else "降级"
-        action_emoji = "⬆️" if action == "promote" else "⬇️"
-        await ctx.send(
-            f"{action_emoji} 成功！**{target.display_name}** 「{old_role_name}」→「{new_role_name}」\n✅ 已刷新角色缓存！"
-        )
+        # 🎉 最终检查
+        target = await guild.fetch_member(target.id)
+        if new_role in target.roles:
+            await ctx.send(
+                f"⬆️ 成功！**{target.display_name}** 「{old_role_name}」→「{new_role_name}」\n✅ 角色已确认添加！"
+            )
+        else:
+            await ctx.send(
+                f"⚠️ 操作执行成功，但未检测到角色！\n请检查：\n1. 机器人角色是否在最顶端\n2. 角色名是否完全匹配"
+            )
+        
         await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
     except discord.Forbidden as e:
@@ -305,7 +311,6 @@ async def promote(ctx, member: discord.Member = None):
 # ─────────────────────────────────────────────
 
 @bot.command(name='demote')
-@commands.check(has_permission)
 async def demote(ctx, member: discord.Member = None):
     if member is None:
         await ctx.send("❌ 用法: `!demote @用户`")
