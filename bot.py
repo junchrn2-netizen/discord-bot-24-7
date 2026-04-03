@@ -26,11 +26,14 @@ RANK_CATEGORIES = {
     "Ownership": ["社区经理", "副服主", "服主", "持有者"],
 }
 
+# 允许使用晋升/降级命令的类别
+ALLOWED_CATEGORIES = ["SHR", "Leadership", "Ownership"]
+
 GLOBAL_RANK_ORDER: list[str] = []
 for _ranks in RANK_CATEGORIES.values():
     GLOBAL_RANK_ORDER.extend(_ranks)
 
-LOG_GUUID = 1360354820757651657
+LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
 
 
@@ -53,6 +56,12 @@ def get_member_rank_info(member: discord.Member) -> tuple[str | None, str | None
                 )
 
     return best_cat, best_role, best_global
+
+
+# 🔐 权限检查：只有指定类别能使用
+def has_permission(ctx):
+    cat, _, _ = get_member_rank_info(ctx.author)
+    return cat in ALLOWED_CATEGORIES
 
 
 def get_next_rank(category: str, current_role: str) -> str | None:
@@ -80,7 +89,7 @@ async def send_rank_log(
     new_role: str,
     category: str,
 ) -> None:
-    log_guild = bot.get_guild(LOG_GUUID)
+    log_guild = bot.get_guild(LOG_GUILD_ID)
     if log_guild is None:
         return
     log_channel = log_guild.get_channel(LOG_CHANNEL_ID)
@@ -189,6 +198,7 @@ async def myroles(ctx):
 # ─────────────────────────────────────────────
 
 @bot.command(name='promote')
+@commands.check(has_permission)  # 🔐 权限检查
 async def promote(ctx, member: discord.Member = None):
     if member is None:
         await ctx.send("❌ 用法: `!promote @用户`")
@@ -206,7 +216,7 @@ async def promote(ctx, member: discord.Member = None):
     tgt_cat, tgt_role, tgt_global = get_member_rank_info(member)
 
     if op_role is None:
-        await ctx.send("❌ 你没有权限。")
+        await ctx.send("❌ 你没有职位。")
         return
 
     if tgt_role is None:
@@ -235,6 +245,7 @@ async def promote(ctx, member: discord.Member = None):
 # ─────────────────────────────────────────────
 
 @bot.command(name='demote')
+@commands.check(has_permission)  # 🔐 权限检查
 async def demote(ctx, member: discord.Member = None):
     if member is None:
         await ctx.send("❌ 用法: `!demote @用户`")
@@ -252,7 +263,7 @@ async def demote(ctx, member: discord.Member = None):
     tgt_cat, tgt_role, tgt_global = get_member_rank_info(member)
 
     if op_role is None:
-        await ctx.send("❌ 你没有权限。")
+        await ctx.send("❌ 你没有职位。")
         return
 
     if tgt_role is None:
@@ -277,6 +288,8 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ 未找到成员。")
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"❌ 用法不对。")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ 你没有权限使用此命令！")
     else:
         print(f'❌ 错误: {error}')
 
