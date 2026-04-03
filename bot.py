@@ -117,7 +117,7 @@ async def apply_rank_change(
 ) -> None:
     guild = ctx.guild
 
-    # 🔍 查找角色
+    # 🚨 第一步：先找到新角色，找不到直接报错，绝不删东西
     new_role = None
     for role in guild.roles:
         if role.name == new_role_name:
@@ -130,10 +130,20 @@ async def apply_rank_change(
                 break
 
     if new_role is None:
-        await ctx.send(f"❌ 错误：找不到角色「{new_role_name}」！")
+        await ctx.send(f"❌ 致命错误：服务器里找不到「{new_role_name}」这个角色！请先创建它！")
         return
 
-    # 📋 收集要删除的角色
+    # 🚨 第二步：先加新角色
+    try:
+        await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
+    except discord.Forbidden:
+        await ctx.send("❌ 权限不够！机器人角色必须在最顶端！")
+        return
+    except Exception as e:
+        await ctx.send(f"❌ 添加失败: {e}")
+        return
+
+    # ✅ 第三步：只有加上了，才敢删旧的！
     roles_to_remove = []
     for role in target.roles:
         if role.name == "@everyone":
@@ -143,28 +153,20 @@ async def apply_rank_change(
                 roles_to_remove.append(role)
                 break
 
-    try:
-        # ➕ 先加新角色
-        await target.add_roles(new_role, reason=f"{action} by {ctx.author}")
+    if roles_to_remove:
+        try:
+            await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup")
+        except Exception as e:
+            # 删失败没关系，反正新的已经加上了
+            print(f"删除旧角色时出现小问题: {e}")
 
-        # 🗑️ 再删旧角色
-        if roles_to_remove:
-            await target.remove_roles(*roles_to_remove, reason=f"{action} cleanup by {ctx.author}")
-
-        # 🎉 成功提示
-        action_label = "晋升" if action == "promote" else "降级"
-        action_emoji = "⬆️" if action == "promote" else "⬇️"
-        await ctx.send(
-            f"{action_emoji} 成功！**{target.display_name}** 从「{old_role_name}」→「{new_role_name}」"
-        )
-        await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
-
-    except discord.Forbidden:
-        await ctx.send("❌ 权限不足！请把机器人角色拖到最顶部！")
-        return
-    except discord.HTTPException as e:
-        await ctx.send(f"❌ 操作失败: {e}")
-        return
+    # 🎉 完成
+    action_label = "晋升" if action == "promote" else "降级"
+    action_emoji = "⬆️" if action == "promote" else "⬇️"
+    await ctx.send(
+        f"{action_emoji} 成功！**{target.display_name}** 从「{old_role_name}」→「{new_role_name}」"
+    )
+    await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
 
 @bot.event
