@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 
 # 加载环境变量
 load_dotenv()
-('DISCORD_BOT_TOKEN')
 
 # 设置机器人意图
 intents = discord.Intents.default()
@@ -53,7 +52,7 @@ async def on_command_error(ctx, error):
     await ctx.send(f'发生错误: {error}')
 
 def run_bot():
-    bot.run('DISCORD_BOT_TOKEN')
+    bot.run(os.getenv('DISCORD_BOT_TOKEN'))
 
 if __name__ == '__main__':
     bot.run(os.getenv('DISCORD_BOT_TOKEN'))
