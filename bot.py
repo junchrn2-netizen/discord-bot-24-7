@@ -138,7 +138,7 @@ async def apply_rank_change(
         await ctx.send(f"❌ 找不到角色「{new_role_name}」！")
         return
 
-    # 🗑️ 找旧角色准备删除
+    # 🗑️ 找旧角色
     old_role = None
     for role in target.roles:
         if old_role_name in role.name:
@@ -146,18 +146,20 @@ async def apply_rank_change(
             break
 
     try:
-        # ➕ 先加新角色
-        await target.add_roles(new_role, reason=f"{action} to {new_role_name}")
+        # ✅ 第一步：先加新角色！必须加上！
+        await target.add_roles(new_role, reason=f"{action} add {new_role_name}")
+        print(f"✅ 已成功添加角色: {new_role_name}")
 
-        # ➖ 再删旧角色 (所有级别都删！)
+        # ✅ 第二步：再删旧角色
         if old_role is not None:
-            await target.remove_roles(old_role, reason=f"{action} remove old role")
+            await target.remove_roles(old_role, reason=f"{action} remove {old_role_name}")
+            print(f"✅ 已成功删除角色: {old_role_name}")
 
-        # 🎉 成功
+        # 🎉 成功提示
         action_label = "晋升" if action == "promote" else "降级"
         action_emoji = "⬆️" if action == "promote" else "⬇️"
         await ctx.send(
-            f"{action_emoji} 成功！**{target.display_name}** 「{old_role_name}」→「{new_role_name}」"
+            f"{action_emoji} 成功！**{target.display_name}** 获得「{new_role_name}」！"
         )
         await send_rank_log(guild, action, ctx.author, target, old_role_name, new_role_name, category)
 
@@ -207,7 +209,7 @@ async def myroles(ctx):
 
 
 # ─────────────────────────────────────────────
-# !promote 晋升命令
+# !promote 命令
 # ─────────────────────────────────────────────
 
 @bot.command(name='promote')
@@ -236,7 +238,6 @@ async def promote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
-    # 权限检查：只能操作比自己低的
     if op_global <= tgt_global:
         await ctx.send("❌ 你只能晋升职级低于你的成员。")
         return
@@ -250,7 +251,7 @@ async def promote(ctx, member: discord.Member = None):
 
 
 # ─────────────────────────────────────────────
-# !demote 降级命令
+# !demote 命令
 # ─────────────────────────────────────────────
 
 @bot.command(name='demote')
@@ -279,7 +280,6 @@ async def demote(ctx, member: discord.Member = None):
         await ctx.send(f"❌ **{member.display_name}** 没有职位。")
         return
 
-    # 权限检查：只能操作比自己低的
     if op_global <= tgt_global:
         await ctx.send("❌ 你只能降级职级低于你的成员。")
         return
