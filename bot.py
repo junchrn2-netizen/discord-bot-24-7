@@ -51,8 +51,8 @@ RANK_TIERS = [
     {"keyword": "Ownership Rank", "min": 21, "max": 23},
 ]
 
-# 🔐 可以使用命令的最低等级：HR 及以上（索引 >= 7）
-PERMISSION_MIN_INDEX = 7
+# 🔐 可以使用命令的最低等级：SHR 及以上（索引 >= 12）
+PERMISSION_MIN_INDEX = 12
 
 LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
@@ -99,12 +99,7 @@ def prev_rank(current_index):
     return None
 
 
-# 📝 日志记录
 async def log_action(ctx, action, target, old, new, tier):
-    log_guild = bot.get_guild(LOG_GUILD_ID)
-    channel = log_guild.get_channel(LOG_CHANNEL_ID) if log_guild else None
-    if not channel:
-        return
     emoji = "⬆️" if action == "promote" else "⬇️"
     embed = discord.Embed(
         title=f"{emoji} 职级{action}记录",
@@ -117,7 +112,11 @@ async def log_action(ctx, action, target, old, new, tier):
     embed.add_field(name="档次", value=tier, inline=True)
     embed.set_footer(text=f"服务器: {ctx.guild.name}")
     embed.timestamp = discord.utils.utcnow()
-    await channel.send(embed=embed)
+    await ctx.send(embed=embed)
+    log_guild = bot.get_guild(LOG_GUILD_ID)
+    log_channel = log_guild.get_channel(LOG_CHANNEL_ID) if log_guild else None
+    if log_channel:
+        await log_channel.send(embed=embed)
 
 
 # ─────────────────────────────────────────────
@@ -133,7 +132,7 @@ async def promote(ctx, member: discord.Member = None):
     # 🔐 权限检查
     my_idx, my_rank = get_user_rank_info(ctx.author)
     if my_idx < PERMISSION_MIN_INDEX:
-        await ctx.send("❌ 你没有权限使用此命令！需要 HR 及以上职级！")
+        await ctx.send("❌ 你没有权限使用此命令！需要 SHR 及以上职级！")
         return
 
     target_idx, target_rank = get_user_rank_info(member)
@@ -175,7 +174,6 @@ async def promote(ctx, member: discord.Member = None):
             await member.remove_roles(old_role)
             print(f"✅ 已删: {old_role.name}")
 
-        await ctx.send(f"⬆️ 成功！{member.display_name} 「{target_rank}」→「{new_rank_name}」")
         await log_action(ctx, "promote", member, target_rank, new_rank_name, get_tier(target_idx))
 
     except Exception as e:
@@ -196,7 +194,7 @@ async def demote(ctx, member: discord.Member = None):
     # 🔐 权限检查
     my_idx, my_rank = get_user_rank_info(ctx.author)
     if my_idx < PERMISSION_MIN_INDEX:
-        await ctx.send("❌ 你没有权限使用此命令！需要 HR 及以上职级！")
+        await ctx.send("❌ 你没有权限使用此命令！需要 SHR 及以上职级！")
         return
 
     target_idx, target_rank = get_user_rank_info(member)
@@ -238,7 +236,6 @@ async def demote(ctx, member: discord.Member = None):
             await member.remove_roles(old_role)
             print(f"✅ 已删: {old_role.name}")
 
-        await ctx.send(f"⬇️ 成功！{member.display_name} 「{target_rank}」→「{new_rank_name}」")
         await log_action(ctx, "demote", member, target_rank, new_rank_name, get_tier(target_idx))
 
     except Exception as e:
