@@ -51,8 +51,8 @@ RANK_TIERS = [
     {"keyword": "Ownership Rank", "min": 21, "max": 23},
 ]
 
-# 🔐 可以使用命令的最低等级：HR 及以上（索引 >= 7）
-PERMISSION_MIN_INDEX = 7
+# 🔐 可以使用命令的最低等级：SHR 及以上（索引 >= 12）
+PERMISSION_MIN_INDEX = 12
 
 LOG_GUILD_ID = 1360354820757651657
 LOG_CHANNEL_ID = 1454209918432182404
@@ -133,7 +133,7 @@ async def promote(ctx, member: discord.Member = None):
     # 🔐 权限检查
     my_idx, my_rank = get_user_rank_info(ctx.author)
     if my_idx < PERMISSION_MIN_INDEX:
-        await ctx.send("❌ 你没有权限使用此命令！需要 HR 及以上职级！")
+        await ctx.send("❌ 你没有权限使用此命令！需要 SHR 及以上职级！")
         return
 
     target_idx, target_rank = get_user_rank_info(member)
@@ -196,7 +196,7 @@ async def demote(ctx, member: discord.Member = None):
     # 🔐 权限检查
     my_idx, my_rank = get_user_rank_info(ctx.author)
     if my_idx < PERMISSION_MIN_INDEX:
-        await ctx.send("❌ 你没有权限使用此命令！需要 HR 及以上职级！")
+        await ctx.send("❌ 你没有权限使用此命令！需要 SHR 及以上职级！")
         return
 
     target_idx, target_rank = get_user_rank_info(member)
