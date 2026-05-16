@@ -97,38 +97,52 @@ def check_permission(my_idx, target_idx):
     return False, "❌ 权限错误。"
 
 # ─────────────────────────────────────────────
-# ⚔️ 斜杠命令实现
+# ⚔️ 命令实现（斜杠 + 前缀共存）
 # ─────────────────────────────────────────────
 
-async def process_military_rank(interaction, member, direction):
+async def process_military_rank(ctx_or_interaction, member, direction):
+    """统一处理逻辑，支持 Interaction 和 Context"""
     async with op_lock:
-        await interaction.response.defer()
-        member = await interaction.guild.fetch_member(member.id)
-        
-        my_idx = get_rank_index(interaction.user)
+        # 判断是斜杠命令还是前缀命令
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            interaction = ctx_or_interaction
+            await interaction.response.defer()
+            invoker = interaction.user
+            followup = interaction.followup
+        else:
+            ctx = ctx_or_interaction
+            invoker = ctx.author
+            followup = ctx
+
+        member = await ctx_or_interaction.guild.fetch_member(member.id)
+
+        my_idx = get_rank_index(invoker)
         t_idx = get_rank_index(member)
 
         # 1. 权限与合法性校验
-        if t_idx == -1: return await interaction.followup.send("❌ 无法识别目标的职级。")
-        
+        if t_idx == -1:
+            return await followup.send("❌ 无法识别目标的职级。")
+
         can_proceed, error_msg = check_permission(my_idx, t_idx)
-        if not can_proceed: return await interaction.followup.send(error_msg)
+        if not can_proceed:
+            return await followup.send(error_msg)
 
         new_idx = t_idx + direction
-        if new_idx < 0 or new_idx >= len(RANK_IDS): return await interaction.followup.send("❌ 职级已达极限。")
+        if new_idx < 0 or new_idx >= len(RANK_IDS):
+            return await followup.send("❌ 职级已达极限。")
 
         # 2. 身份组计算
-        old_pos_role = interaction.guild.get_role(RANK_IDS[t_idx])
-        new_pos_role = interaction.guild.get_role(RANK_IDS[new_idx])
-        
+        old_pos_role = ctx_or_interaction.guild.get_role(RANK_IDS[t_idx])
+        new_pos_role = ctx_or_interaction.guild.get_role(RANK_IDS[new_idx])
+
         old_t_cfg = get_tier_info(t_idx)
         new_t_cfg = get_tier_info(new_idx)
 
         add_list, rem_list = [new_pos_role], [old_pos_role]
 
         if old_t_cfg and new_t_cfg and old_t_cfg["id"] != new_t_cfg["id"]:
-            add_list.append(interaction.guild.get_role(new_t_cfg["id"]))
-            rem_list.append(interaction.guild.get_role(old_t_cfg["id"]))
+            add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
+            rem_list.append(ctx_or_interaction.guild.get_role(old_t_cfg["id"]))
 
         # 3. 执行
         try:
@@ -136,37 +150,51 @@ async def process_military_rank(interaction, member, direction):
             await member.remove_roles(*[r for r in rem_list if r and r in member.roles])
 
             action = "晋升" if direction == 1 else "降级"
-            embed = discord.Embed(title=f"🎖️ 军事职级变动", color=discord.Color.gold() if direction==1 else discord.Color.light_gray(), timestamp=datetime.now())
+            embed = discord.Embed(
+                title=f"🎖️ 军事职级变动",
+                color=discord.Color.gold() if direction == 1 else discord.Color.light_gray(),
+                timestamp=datetime.now()
+            )
             embed.add_field(name="目标人员", value=member.mention, inline=True)
-            embed.add_field(name="执行军官", value=interaction.user.mention, inline=True)
+            embed.add_field(name="执行军官", value=invoker.mention, inline=True)
             embed.add_field(name="职位变动", value=f"<@&{RANK_IDS[t_idx]}> ➔ <@&{RANK_IDS[new_idx]}>", inline=False)
-            
+
             if old_t_cfg["id"] != new_t_cfg["id"]:
                 embed.add_field(name="阶级同步", value=f"`{old_t_cfg['name']}` ➔ `{new_t_cfg['name']}`")
 
-            await interaction.followup.send(embed=embed)
-            
+            await followup.send(embed=embed)
+
             # 日志
             log_chan = bot.get_channel(LOG_RANK_CHANGE)
-            if log_chan: await log_chan.send(embed=embed)
+            if log_chan:
+                await log_chan.send(embed=embed)
 
         except Exception as e:
-            await interaction.followup.send(f"❌ 操作失败: {e}")
+            await followup.send(f"❌ 操作失败: {e}")
 
+# 斜杠命令
 @bot.tree.command(name="promote", description="晋升成员的军事职级")
-async def promote(interaction: discord.Interaction, member: discord.Member):
+async def promote_slash(interaction: discord.Interaction, member: discord.Member):
     await process_military_rank(interaction, member, 1)
 
 @bot.tree.command(name="demote", description="降级成员的军事职级")
-async def demote(interaction: discord.Interaction, member: discord.Member):
+async def demote_slash(interaction: discord.Interaction, member: discord.Member):
     await process_military_rank(interaction, member, -1)
+
+# 前缀命令
+@bot.command(name="promote", description="晋升成员的军事职级")
+async def promote_prefix(ctx: commands.Context, member: discord.Member):
+    await process_military_rank(ctx, member, 1)
+
+@bot.command(name="demote", description="降级成员的军事职级")
+async def demote_prefix(ctx: commands.Context, member: discord.Member):
+    await process_military_rank(ctx, member, -1)
 
 # ─────────────────────────────────────────────
 # ⚙️ 系统指令
 # ─────────────────────────────────────────────
 
 @bot.command()
-@commands.is_owner()
 async def sync(ctx):
     synced = await bot.tree.sync()
     await ctx.send(f"✅ 已同步 {len(synced)} 个斜杠命令！")
