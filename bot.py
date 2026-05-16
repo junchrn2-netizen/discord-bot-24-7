@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─────────────────────────────────────────────
+# 🛡️ 内务部门 ID（不可被晋升/降级，可操作所有人）
+# ─────────────────────────────────────────────
+INTERNAL_AFFAIRS_ROLE = 1505175647989923941
+
+# ─────────────────────────────────────────────
 # 🔰 军事职级 ID 精准序列 (从索引 0 到 21)
 # ─────────────────────────────────────────────
 RANK_IDS = [
@@ -66,6 +71,10 @@ def get_tier_info(index):
         if t["min"] <= index <= t["max"]: return t
     return None
 
+def has_internal_affairs(member):
+    """检查是否拥有内务部门身份组"""
+    return any(r.id == INTERNAL_AFFAIRS_ROLE for r in member.roles)
+
 class MilitaryBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=discord.Intents.all())
@@ -77,12 +86,17 @@ op_lock = asyncio.Lock()
 # 🚀 晋升/降级权限判定系统
 # ─────────────────────────────────────────────
 
-def check_permission(my_idx, target_idx):
+def check_permission(my_idx, target_idx, is_internal_affairs=False):
     """
     规则：
-    1. 初级(9)到高级军官(15) 只能晋升 士兵和毕业生(1-6)
-    2. 将军(16)以上 可以晋升所有比自己低的
+    1. 内务部门可以操作所有人
+    2. 初级(9)到高级军官(15) 只能晋升 士兵和毕业生(1-6)
+    3. 将军(16)以上 可以晋升所有比自己低的
     """
+    # 内务部门无条件通过
+    if is_internal_affairs:
+        return True, ""
+    
     if my_idx < 9: return False, "❌ 你的职级太低，无法执行管理操作。"
     
     # 将军及以上 (16-21)
@@ -102,9 +116,7 @@ def check_permission(my_idx, target_idx):
 # ─────────────────────────────────────────────
 
 async def process_military_rank(ctx_or_interaction, member, direction):
-    """统一处理逻辑，支持 Interaction 和 Context"""
     async with op_lock:
-        # 判断是斜杠命令还是前缀命令
         if isinstance(ctx_or_interaction, discord.Interaction):
             interaction = ctx_or_interaction
             await interaction.response.defer()
@@ -117,14 +129,20 @@ async def process_military_rank(ctx_or_interaction, member, direction):
 
         member = await ctx_or_interaction.guild.fetch_member(member.id)
 
+        # 🛡️ 检查目标是否为内务部门（不可被操作）
+        if has_internal_affairs(member):
+            return await followup.send("🛡️ 目标人员属于内务部门，不可被晋升或降级。")
+
+        invoker_is_ia = has_internal_affairs(invoker)
+
         my_idx = get_rank_index(invoker)
         t_idx = get_rank_index(member)
 
-        # 1. 权限与合法性校验
+        # 权限与合法性校验
         if t_idx == -1:
             return await followup.send("❌ 无法识别目标的职级。")
 
-        can_proceed, error_msg = check_permission(my_idx, t_idx)
+        can_proceed, error_msg = check_permission(my_idx, t_idx, invoker_is_ia)
         if not can_proceed:
             return await followup.send(error_msg)
 
@@ -132,7 +150,7 @@ async def process_military_rank(ctx_or_interaction, member, direction):
         if new_idx < 0 or new_idx >= len(RANK_IDS):
             return await followup.send("❌ 职级已达极限。")
 
-        # 2. 身份组计算
+        # 身份组计算
         old_pos_role = ctx_or_interaction.guild.get_role(RANK_IDS[t_idx])
         new_pos_role = ctx_or_interaction.guild.get_role(RANK_IDS[new_idx])
 
@@ -145,7 +163,7 @@ async def process_military_rank(ctx_or_interaction, member, direction):
             add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
             rem_list.append(ctx_or_interaction.guild.get_role(old_t_cfg["id"]))
 
-        # 3. 执行
+        # 执行
         try:
             await member.add_roles(*[r for r in add_list if r])
             await member.remove_roles(*[r for r in rem_list if r and r in member.roles])
@@ -160,12 +178,11 @@ async def process_military_rank(ctx_or_interaction, member, direction):
             embed.add_field(name="执行军官", value=invoker.mention, inline=True)
             embed.add_field(name="职位变动", value=f"<@&{RANK_IDS[t_idx]}> ➔ <@&{RANK_IDS[new_idx]}>", inline=False)
 
-            if old_t_cfg["id"] != new_t_cfg["id"]:
+            if old_t_cfg and new_t_cfg and old_t_cfg["id"] != new_t_cfg["id"]:
                 embed.add_field(name="阶级同步", value=f"`{old_t_cfg['name']}` ➔ `{new_t_cfg['name']}`")
 
             await followup.send(embed=embed)
 
-            # 日志
             log_chan = bot.get_channel(LOG_RANK_CHANGE)
             if log_chan:
                 await log_chan.send(embed=embed)
