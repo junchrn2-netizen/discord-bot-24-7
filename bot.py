@@ -1,4 +1,4 @@
-# 军事管理 Bot v3 - 含流放命令
+# 军事管理 Bot v4 - 含流放、原因、直接授衔命令
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -54,6 +54,20 @@ TIER_CONFIG = [
     {"name": "精英军官",   "id": 1474459473920917576, "min": 19, "max": 21},
 ]
 
+# 职级名称映射（用于 setrank 命令）
+RANK_NAMES = {
+    "市民": 0, "平民": 0,
+    "新兵": 1, "列兵": 2, "下士": 3,
+    "三级军士长": 4, "二级军士长": 5, "一级军士长": 6,
+    "少尉特殊": 7,
+    "学员": 8,
+    "初级军官": 9,
+    "少尉": 10, "中尉": 11, "上尉": 12,
+    "少校": 13, "中校": 14, "上校": 15,
+    "旅长": 16, "师长": 17, "陆军上将": 18,
+    "军事精英": 19, "皇家精英": 20, "秘密精英": 21,
+}
+
 # 日志频道
 LOG_RANK_CHANGE = 1454209918432182404
 
@@ -62,7 +76,7 @@ LOG_RANK_CHANGE = 1454209918432182404
 # ─────────────────────────────────────────────
 
 def get_rank_index(member):
-    """从低到高扫描，返回第一个匹配的职级索引（避免跳级）"""
+    """从低到高扫描，返回第一个匹配的职级索引"""
     m_role_ids = [r.id for r in member.roles]
     for i in range(len(RANK_IDS)):
         if RANK_IDS[i] in m_role_ids:
@@ -75,7 +89,6 @@ def get_tier_info(index):
     return None
 
 def has_internal_affairs(member):
-    """检查是否拥有内务部门身份组"""
     return any(r.id == INTERNAL_AFFAIRS_ROLE for r in member.roles)
 
 class MilitaryBot(commands.Bot):
@@ -86,16 +99,10 @@ bot = MilitaryBot()
 op_lock = asyncio.Lock()
 
 # ─────────────────────────────────────────────
-# 🚀 晋升/降级权限判定系统
+# 🚀 权限判定系统
 # ─────────────────────────────────────────────
 
 def check_permission(my_idx, target_idx, is_internal_affairs=False):
-    """
-    规则：
-    1. 内务部门可以操作所有人
-    2. 初级(9)到高级军官(15) 只能晋升 士兵和毕业生(1-6)
-    3. 将军(16)以上 可以晋升所有比自己低的
-    """
     if is_internal_affairs:
         return True, ""
     
@@ -112,10 +119,10 @@ def check_permission(my_idx, target_idx, is_internal_affairs=False):
     return False, "❌ 权限错误。"
 
 # ─────────────────────────────────────────────
-# ⚔️ 命令实现（斜杠 + 前缀共存）
+# ⚔️ 核心操作函数
 # ─────────────────────────────────────────────
 
-async def process_military_rank(ctx_or_interaction, member, direction):
+async def process_military_rank(ctx_or_interaction, member, direction, reason=None):
     """晋升(+1) 或 降级(-1)"""
     async with op_lock:
         if isinstance(ctx_or_interaction, discord.Interaction):
@@ -134,7 +141,6 @@ async def process_military_rank(ctx_or_interaction, member, direction):
             return await followup.send("🛡️ 目标人员属于内务部门，不可被操作。")
 
         invoker_is_ia = has_internal_affairs(invoker)
-
         my_idx = get_rank_index(invoker)
         t_idx = get_rank_index(member)
 
@@ -149,9 +155,9 @@ async def process_military_rank(ctx_or_interaction, member, direction):
         if new_idx < 0 or new_idx >= len(RANK_IDS):
             return await followup.send("❌ 职级已达极限。")
 
-        await apply_rank_change(ctx_or_interaction, member, invoker, t_idx, new_idx, followup)
+        await apply_rank_change(ctx_or_interaction, member, invoker, t_idx, new_idx, followup, reason=reason)
 
-async def process_exile(ctx_or_interaction, member):
+async def process_exile(ctx_or_interaction, member, reason=None):
     """流放：直接降回市民"""
     async with op_lock:
         if isinstance(ctx_or_interaction, discord.Interaction):
@@ -170,7 +176,6 @@ async def process_exile(ctx_or_interaction, member):
             return await followup.send("🛡️ 目标人员属于内务部门，不可被流放。")
 
         invoker_is_ia = has_internal_affairs(invoker)
-
         my_idx = get_rank_index(invoker)
         t_idx = get_rank_index(member)
 
@@ -184,10 +189,53 @@ async def process_exile(ctx_or_interaction, member):
         if not can_proceed:
             return await followup.send(error_msg)
 
-        new_idx = 0  # 流放到市民
-        await apply_rank_change(ctx_or_interaction, member, invoker, t_idx, new_idx, followup, is_exile=True)
+        await apply_rank_change(ctx_or_interaction, member, invoker, t_idx, 0, followup, is_exile=True, reason=reason)
 
-async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_idx, followup, is_exile=False):
+async def process_setrank(ctx_or_interaction, member, rank_name, reason=None):
+    """直接设置军衔"""
+    async with op_lock:
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            interaction = ctx_or_interaction
+            await interaction.response.defer()
+            invoker = interaction.user
+            followup = interaction.followup
+        else:
+            ctx = ctx_or_interaction
+            invoker = ctx.author
+            followup = ctx
+
+        member = await ctx_or_interaction.guild.fetch_member(member.id)
+
+        if has_internal_affairs(member):
+            return await followup.send("🛡️ 目标人员属于内务部门，不可被操作。")
+
+        invoker_is_ia = has_internal_affairs(invoker)
+
+        if not invoker_is_ia:
+            return await followup.send("❌ 只有内务部门可以使用此命令。")
+
+        # 查找职级索引
+        rank_name_lower = rank_name.lower()
+        new_idx = None
+        for name, idx in RANK_NAMES.items():
+            if name.lower() == rank_name_lower:
+                new_idx = idx
+                break
+
+        if new_idx is None:
+            rank_list = "、".join(RANK_NAMES.keys())
+            return await followup.send(f"❌ 未知职级。可用职级：{rank_list}")
+
+        t_idx = get_rank_index(member)
+        if t_idx == -1:
+            return await followup.send("❌ 无法识别目标的职级。")
+
+        if t_idx == new_idx:
+            return await followup.send(f"❌ 目标已经是该职级，无需更改。")
+
+        await apply_rank_change(ctx_or_interaction, member, invoker, t_idx, new_idx, followup, is_setrank=True, reason=reason)
+
+async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_idx, followup, is_exile=False, is_setrank=False, reason=None):
     """执行身份组变更"""
     old_pos_role = ctx_or_interaction.guild.get_role(RANK_IDS[old_idx])
     new_pos_role = ctx_or_interaction.guild.get_role(RANK_IDS[new_idx])
@@ -197,13 +245,12 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
 
     add_list, rem_list = [new_pos_role], [old_pos_role]
 
-    # 移除所有中间职级身份组（流放时需要）
-    if is_exile:
+    # 流放或 setrank：清除所有旧职级
+    if is_exile or is_setrank:
         for i in range(1, len(RANK_IDS)):
             role = ctx_or_interaction.guild.get_role(RANK_IDS[i])
             if role and role in member.roles:
                 rem_list.append(role)
-        # 移除所有阶级身份组
         for tier in TIER_CONFIG:
             role = ctx_or_interaction.guild.get_role(tier["id"])
             if role and role in member.roles:
@@ -213,8 +260,11 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
             add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
             rem_list.append(ctx_or_interaction.guild.get_role(old_t_cfg["id"]))
 
+    # setrank：添加新阶级
+    if is_setrank and new_t_cfg:
+        add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
+
     try:
-        # 去重
         add_list = list(set([r for r in add_list if r]))
         rem_list = list(set([r for r in rem_list if r and r in member.roles]))
 
@@ -224,6 +274,9 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
         if is_exile:
             title = "🚫 流放"
             color = discord.Color.dark_red()
+        elif is_setrank:
+            title = "📋 军衔授予"
+            color = discord.Color.blue()
         else:
             title = "🎖️ 军事职级变动"
             color = discord.Color.gold() if new_idx > old_idx else discord.Color.light_gray()
@@ -240,6 +293,9 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
         if not is_exile and old_t_cfg and new_t_cfg and old_t_cfg["id"] != new_t_cfg["id"]:
             embed.add_field(name="阶级同步", value=f"`{old_t_cfg['name']}` ➔ `{new_t_cfg['name']}`")
 
+        if reason:
+            embed.add_field(name="原因", value=reason, inline=False)
+
         await followup.send(embed=embed)
 
         log_chan = bot.get_channel(LOG_RANK_CHANGE)
@@ -253,35 +309,48 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
 # 📋 命令注册
 # ─────────────────────────────────────────────
 
-# 斜杠命令 - 晋升
+# 斜杠命令 - 晋升（无原因）
 @bot.tree.command(name="promote", description="晋升成员的军事职级")
 async def promote_slash(interaction: discord.Interaction, member: discord.Member):
     await process_military_rank(interaction, member, 1)
 
-# 斜杠命令 - 降级
+# 斜杠命令 - 降级（含原因）
 @bot.tree.command(name="demote", description="降级成员的军事职级")
-async def demote_slash(interaction: discord.Interaction, member: discord.Member):
-    await process_military_rank(interaction, member, -1)
+@app_commands.describe(member="目标成员", reason="降级原因")
+async def demote_slash(interaction: discord.Interaction, member: discord.Member, reason: str = None):
+    await process_military_rank(interaction, member, -1, reason=reason)
 
-# 斜杠命令 - 流放
+# 斜杠命令 - 流放（含原因）
 @bot.tree.command(name="exile", description="流放成员，直接降回市民")
-async def exile_slash(interaction: discord.Interaction, member: discord.Member):
-    await process_exile(interaction, member)
+@app_commands.describe(member="目标成员", reason="流放原因")
+async def exile_slash(interaction: discord.Interaction, member: discord.Member, reason: str = None):
+    await process_exile(interaction, member, reason=reason)
+
+# 斜杠命令 - 直接授衔（含原因）
+@bot.tree.command(name="setrank", description="直接授予军衔（仅内务部门可用）")
+@app_commands.describe(member="目标成员", rank="职级名称", reason="授予原因")
+async def setrank_slash(interaction: discord.Interaction, member: discord.Member, rank: str, reason: str = None):
+    await process_setrank(interaction, member, rank, reason=reason)
 
 # 前缀命令 - 晋升
-@bot.command(name="promote", description="晋升成员的军事职级")
+@bot.command(name="promote")
 async def promote_prefix(ctx: commands.Context, member: discord.Member):
     await process_military_rank(ctx, member, 1)
 
-# 前缀命令 - 降级
-@bot.command(name="demote", description="降级成员的军事职级")
-async def demote_prefix(ctx: commands.Context, member: discord.Member):
-    await process_military_rank(ctx, member, -1)
+# 前缀命令 - 降级（含原因）
+@bot.command(name="demote")
+async def demote_prefix(ctx: commands.Context, member: discord.Member, *, reason: str = None):
+    await process_military_rank(ctx, member, -1, reason=reason)
 
-# 前缀命令 - 流放
-@bot.command(name="exile", description="流放成员，直接降回市民")
-async def exile_prefix(ctx: commands.Context, member: discord.Member):
-    await process_exile(ctx, member)
+# 前缀命令 - 流放（含原因）
+@bot.command(name="exile")
+async def exile_prefix(ctx: commands.Context, member: discord.Member, *, reason: str = None):
+    await process_exile(ctx, member, reason=reason)
+
+# 前缀命令 - 直接授衔（含原因）
+@bot.command(name="setrank")
+async def setrank_prefix(ctx: commands.Context, member: discord.Member, rank_name: str, *, reason: str = None):
+    await process_setrank(ctx, member, rank_name, reason=reason)
 
 # ─────────────────────────────────────────────
 # ⚙️ 系统指令
