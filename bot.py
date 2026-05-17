@@ -1,4 +1,4 @@
-# 军事管理 Bot v6 - 修复阶级添加 + CD
+# 军事管理 Bot v7 - 含训练系统 + 开合跳互动游戏
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -304,11 +304,9 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
             if role and role in member.roles:
                 rem_list.append(role)
     else:
-        # 添加新阶级（修复：即使旧阶级不存在也能添加）
         if new_t_cfg:
             if not old_t_cfg or old_t_cfg["id"] != new_t_cfg["id"]:
                 add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
-        # 移除旧阶级
         if old_t_cfg:
             if not new_t_cfg or old_t_cfg["id"] != new_t_cfg["id"]:
                 rem_list.append(ctx_or_interaction.guild.get_role(old_t_cfg["id"]))
@@ -367,6 +365,105 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
         await followup.send(f"❌ 操作失败: {e}")
 
 # ─────────────────────────────────────────────
+# 🏃 开合跳互动小游戏
+# ─────────────────────────────────────────────
+
+class JJGame(discord.ui.View):
+    def __init__(self, member, required, trainer):
+        super().__init__(timeout=35)
+        self.member = member
+        self.required = required
+        self.trainer = trainer
+        self.count = 0
+        self.finished = False
+
+    @discord.ui.button(label="🦘 跳跃！", style=discord.ButtonStyle.green)
+    async def jump(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("❌ 只有受训者可以跳跃！", ephemeral=True)
+            return
+
+        if self.finished:
+            await interaction.response.send_message("⏰ 时间已到！", ephemeral=True)
+            return
+
+        self.count += 1
+        button.label = f"🦘 跳跃！({self.count})"
+
+        if self.count >= self.required:
+            self.finished = True
+            button.disabled = True
+            button.label = f"✅ 完成！({self.count})"
+            button.style = discord.ButtonStyle.grey
+            self.stop()
+
+        await interaction.response.edit_message(view=self)
+
+    async def on_timeout(self):
+        if not self.finished:
+            for child in self.children:
+                child.disabled = True
+            passed = self.count >= self.required
+            result = "✅ 通过" if passed else "❌ 未通过"
+            embed = discord.Embed(
+                title="🏃 开合跳成绩",
+                description=f"{self.member.mention} 完成了 **{self.count}** 个开合跳",
+                color=discord.Color.green() if passed else discord.Color.red(),
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="要求数量", value=str(self.required), inline=True)
+            embed.add_field(name="成绩", value=f"{result} (+{1.0 if passed else 0.0} 分)", inline=True)
+            embed.add_field(name="评分教官", value=self.trainer.mention, inline=False)
+            embed.set_footer(text="开合跳评分")
+            await self.message.edit(embed=embed, view=self)
+
+async def process_jj(ctx_or_interaction, member):
+    """开合跳互动游戏"""
+    if isinstance(ctx_or_interaction, discord.Interaction):
+        interaction = ctx_or_interaction
+        await interaction.response.defer()
+        invoker = interaction.user
+        followup = interaction.followup
+    else:
+        ctx = ctx_or_interaction
+        invoker = ctx.author
+        followup = ctx
+
+    member = await ctx_or_interaction.guild.fetch_member(member.id)
+
+    t_idx = get_rank_index(member)
+    if t_idx == -1:
+        return await followup.send("❌ 无法识别目标的职级。")
+
+    if 1 <= t_idx <= 3:
+        rank_type = "士兵"
+        required = 150
+    elif 4 <= t_idx <= 6:
+        rank_type = "毕业生"
+        required = 170
+    else:
+        rank_type = "军官"
+        required = 150
+
+    view = JJGame(member, required, invoker)
+    embed = discord.Embed(
+        title="🏃 开合跳训练",
+        description=f"{member.mention} 请在 **30秒** 内疯狂点击下方按钮！\n"
+                    f"职级类型：**{rank_type}**\n"
+                    f"要求数量：**{required}** 个",
+        color=discord.Color.blue(),
+        timestamp=datetime.now()
+    )
+    embed.set_footer(text=f"教官：{invoker.display_name}")
+
+    if isinstance(ctx_or_interaction, discord.Interaction):
+        await interaction.followup.send(embed=embed, view=view)
+        view.message = await interaction.original_response()
+    else:
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
+
+# ─────────────────────────────────────────────
 # 📋 命令注册
 # ─────────────────────────────────────────────
 
@@ -389,6 +486,11 @@ async def exile_slash(interaction: discord.Interaction, member: discord.Member, 
 async def setrank_slash(interaction: discord.Interaction, member: discord.Member, rank: str, reason: str = None):
     await process_setrank(interaction, member, rank, reason=reason)
 
+@bot.tree.command(name="jj", description="开合跳训练（互动按钮）")
+@app_commands.describe(member="目标成员")
+async def jj_slash(interaction: discord.Interaction, member: discord.Member):
+    await process_jj(interaction, member)
+
 @bot.command(name="promote")
 async def promote_prefix(ctx: commands.Context, member: discord.Member):
     await process_military_rank(ctx, member, 1)
@@ -404,6 +506,10 @@ async def exile_prefix(ctx: commands.Context, member: discord.Member, *, reason:
 @bot.command(name="setrank")
 async def setrank_prefix(ctx: commands.Context, member: discord.Member, rank_name: str, *, reason: str = None):
     await process_setrank(ctx, member, rank_name, reason=reason)
+
+@bot.command(name="jj")
+async def jj_prefix(ctx: commands.Context, member: discord.Member):
+    await process_jj(ctx, member)
 
 # ─────────────────────────────────────────────
 # ⚙️ 系统指令
