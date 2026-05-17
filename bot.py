@@ -1,4 +1,4 @@
-# 军事管理 Bot v11 - 一键训练系统
+# 军事管理 Bot v12 - 5秒规则显示
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -395,7 +395,7 @@ class TrainingView(discord.ui.View):
         )
         self.rule_msg = await channel.send(embed=embed)
 
-        await asyncio.sleep(9)
+        await asyncio.sleep(5)
         if self.rule_msg:
             await self.rule_msg.delete()
             self.rule_msg = None
@@ -488,7 +488,6 @@ async def process_train(ctx_or_interaction, member):
 
     member = await ctx_or_interaction.guild.fetch_member(member.id)
 
-    # 权限检查
     invoker_idx = get_rank_index(invoker)
     is_ia = has_internal_affairs(invoker)
     t_idx = get_rank_index(member)
@@ -500,7 +499,6 @@ async def process_train(ctx_or_interaction, member):
         else:
             return await channel.send(msg)
 
-    # 平民训练：三级军士长(4)+ 或内务部门
     if t_idx == 0:
         if invoker_idx < 4 and not is_ia:
             msg = "❌ 招募平民需要三级军士长及以上职级。"
@@ -512,7 +510,6 @@ async def process_train(ctx_or_interaction, member):
         training_type = "civilian"
         type_name = "🏙️ 平民招募训练"
     else:
-        # 军人训练：初级军官(9)+ 或内务部门
         if invoker_idx < 9 and not is_ia:
             msg = "❌ 训练军人需要初级军官及以上职级。"
             if isinstance(ctx_or_interaction, discord.Interaction):
@@ -525,7 +522,7 @@ async def process_train(ctx_or_interaction, member):
 
     embed = discord.Embed(
         title=type_name,
-        description=f"{member.mention} 的训练开始！\n📋 共 {len(rules)} 条规则\n⏱️ 每条规则显示 9 秒后出题\n🎯 答错即终止",
+        description=f"{member.mention} 的训练开始！\n📋 共 {len(rules)} 条规则\n⏱️ 每条规则显示 5 秒后出题\n🎯 答错即终止",
         color=discord.Color.green()
     )
     embed.set_footer(text=f"教官：{invoker.display_name}")
