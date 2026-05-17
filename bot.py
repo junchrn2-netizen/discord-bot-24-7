@@ -1,3 +1,4 @@
+# 军事管理 Bot v3 - 含流放命令
 import discord
 from discord import app_commands
 from discord.ext import commands
