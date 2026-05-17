@@ -1,18 +1,47 @@
-# 军事管理 Bot v4 - 含流放、原因、直接授衔命令
+# 军事管理 Bot v5 - 含CD、流放、原因、直接授衔
 import discord
 from discord import app_commands
 from discord.ext import commands
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # ─────────────────────────────────────────────
-# 🛡️ 内务部门 ID（不可被晋升/降级/流放，可操作所有人）
+# 🛡️ 内务部门 ID
 # ─────────────────────────────────────────────
 INTERNAL_AFFAIRS_ROLE = 1505175647989923941
+
+# ─────────────────────────────────────────────
+# 🕐 每个职级的晋升冷却时间（小时）
+# 索引对应 RANK_IDS，值 = 到达该职级后需等待的小时数
+# ─────────────────────────────────────────────
+PROMOTE_CD_HOURS = [
+    0,    # 0: 市民 → 无CD
+    3,    # 1: 新兵 → 3小时
+    6,    # 2: 列兵 → 6小时
+    12,   # 3: 下士 → 12小时
+    15,   # 4: 三级军士长 → 15小时
+    20,   # 5: 二级军士长 → 20小时
+    25,   # 6: 一级军士长 → 25小时
+    30,   # 7: 少尉(特殊) → 30小时
+    35,   # 8: 学员 → 35小时
+    40,   # 9: 初级军官 → 40小时
+    45,   # 10: 少尉 → 45小时
+    50,   # 11: 中尉 → 50小时
+    55,   # 12: 上尉 → 55小时
+    60,   # 13: 少校 → 60小时
+    65,   # 14: 中校 → 65小时
+    70,   # 15: 上校 → 70小时
+    75,   # 16: 旅长 → 75小时
+    80,   # 17: 师长 → 80小时
+    85,   # 18: 陆军上将 → 85小时
+    250,  # 19: 军事精英 → 250小时
+    500,  # 20: 皇家精英 → 500小时
+    350,  # 21: 秘密精英 → 350小时
+]
 
 # ─────────────────────────────────────────────
 # 🔰 军事职级 ID 精准序列 (从索引 0 到 21)
@@ -76,7 +105,6 @@ LOG_RANK_CHANGE = 1454209918432182404
 # ─────────────────────────────────────────────
 
 def get_rank_index(member):
-    """从低到高扫描，返回第一个匹配的职级索引"""
     m_role_ids = [r.id for r in member.roles]
     for i in range(len(RANK_IDS)):
         if RANK_IDS[i] in m_role_ids:
@@ -97,6 +125,9 @@ class MilitaryBot(commands.Bot):
 
 bot = MilitaryBot()
 op_lock = asyncio.Lock()
+
+# 🕐 晋升时间追踪：{user_id: datetime}
+last_promotion = {}
 
 # ─────────────────────────────────────────────
 # 🚀 权限判定系统
@@ -147,6 +178,24 @@ async def process_military_rank(ctx_or_interaction, member, direction, reason=No
         if t_idx == -1:
             return await followup.send("❌ 无法识别目标的职级。")
 
+        # 🕐 晋升CD检查
+        if direction == 1:
+            now = datetime.now()
+            if member.id in last_promotion:
+                cd_hours = PROMOTE_CD_HOURS[t_idx]
+                elapsed = (now - last_promotion[member.id]).total_seconds() / 3600
+                remaining_hours = cd_hours - elapsed
+                if remaining_hours > 0:
+                    if remaining_hours >= 1:
+                        return await followup.send(
+                            f"⏳ {member.mention} 还需等待 **{remaining_hours:.1f} 小时**才能晋升！"
+                        )
+                    else:
+                        mins = int(remaining_hours * 60)
+                        return await followup.send(
+                            f"⏳ {member.mention} 还需等待 **{mins} 分钟**才能晋升！"
+                        )
+
         can_proceed, error_msg = check_permission(my_idx, t_idx, invoker_is_ia)
         if not can_proceed:
             return await followup.send(error_msg)
@@ -192,7 +241,7 @@ async def process_exile(ctx_or_interaction, member, reason=None):
         await apply_rank_change(ctx_or_interaction, member, invoker, t_idx, 0, followup, is_exile=True, reason=reason)
 
 async def process_setrank(ctx_or_interaction, member, rank_name, reason=None):
-    """直接设置军衔"""
+    """直接设置军衔（仅内务部门）"""
     async with op_lock:
         if isinstance(ctx_or_interaction, discord.Interaction):
             interaction = ctx_or_interaction
@@ -214,7 +263,6 @@ async def process_setrank(ctx_or_interaction, member, rank_name, reason=None):
         if not invoker_is_ia:
             return await followup.send("❌ 只有内务部门可以使用此命令。")
 
-        # 查找职级索引
         rank_name_lower = rank_name.lower()
         new_idx = None
         for name, idx in RANK_NAMES.items():
@@ -245,7 +293,6 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
 
     add_list, rem_list = [new_pos_role], [old_pos_role]
 
-    # 流放或 setrank：清除所有旧职级
     if is_exile or is_setrank:
         for i in range(1, len(RANK_IDS)):
             role = ctx_or_interaction.guild.get_role(RANK_IDS[i])
@@ -260,7 +307,6 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
             add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
             rem_list.append(ctx_or_interaction.guild.get_role(old_t_cfg["id"]))
 
-    # setrank：添加新阶级
     if is_setrank and new_t_cfg:
         add_list.append(ctx_or_interaction.guild.get_role(new_t_cfg["id"]))
 
@@ -270,6 +316,10 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
 
         await member.add_roles(*add_list)
         await member.remove_roles(*rem_list)
+
+        # ✅ 记录晋升时间
+        now = datetime.now()
+        last_promotion[member.id] = now
 
         if is_exile:
             title = "🚫 流放"
@@ -284,7 +334,7 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
         embed = discord.Embed(
             title=title,
             color=color,
-            timestamp=datetime.now()
+            timestamp=now
         )
         embed.add_field(name="目标人员", value=member.mention, inline=True)
         embed.add_field(name="执行军官", value=invoker.mention, inline=True)
@@ -295,6 +345,11 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
 
         if reason:
             embed.add_field(name="原因", value=reason, inline=False)
+
+        # 显示下次晋升CD
+        next_cd = PROMOTE_CD_HOURS[new_idx]
+        if next_cd > 0 and not is_exile:
+            embed.set_footer(text=f"⏳ 下次晋升需等待 {next_cd} 小时")
 
         await followup.send(embed=embed)
 
@@ -309,7 +364,7 @@ async def apply_rank_change(ctx_or_interaction, member, invoker, old_idx, new_id
 # 📋 命令注册
 # ─────────────────────────────────────────────
 
-# 斜杠命令 - 晋升（无原因）
+# 斜杠命令 - 晋升
 @bot.tree.command(name="promote", description="晋升成员的军事职级")
 async def promote_slash(interaction: discord.Interaction, member: discord.Member):
     await process_military_rank(interaction, member, 1)
