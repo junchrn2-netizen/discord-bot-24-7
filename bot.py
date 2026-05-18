@@ -1,4 +1,6 @@
-# 军事管理 Bot v12 - 5秒规则显示
+# 军事管理 Bot v13 - 健康检查 + 防休眠
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -122,6 +124,25 @@ class MilitaryBot(commands.Bot):
 bot = MilitaryBot()
 op_lock = asyncio.Lock()
 last_promotion = {}
+
+# ─────────────────────────────────────────────
+# 🌐 健康检查 HTTP 服务器（防休眠）
+# ─────────────────────────────────────────────
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'OK')
+    def log_message(self, format, *args):
+        pass
+
+def start_health_server():
+    server = HTTPServer(('0.0.0.0', 10000), HealthHandler)
+    server.serve_forever()
+
+threading.Thread(target=start_health_server, daemon=True).start()
 
 # ─────────────────────────────────────────────
 # 🚀 权限判定
