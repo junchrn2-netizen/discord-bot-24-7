@@ -1,4 +1,4 @@
-# 军事管理 Bot v13 - 健康检查 + 防休眠
+# 军事管理 Bot v14 - 自定义嵌入消息
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import discord
@@ -125,10 +125,7 @@ bot = MilitaryBot()
 op_lock = asyncio.Lock()
 last_promotion = {}
 
-# ─────────────────────────────────────────────
-# 🌐 健康检查 HTTP 服务器（防休眠）
-# ─────────────────────────────────────────────
-
+# 🌐 健康检查
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -570,6 +567,49 @@ async def train_slash(interaction: discord.Interaction, member: discord.Member):
 @bot.command(name="train")
 async def train_prefix(ctx: commands.Context, member: discord.Member):
     await process_train(ctx, member)
+
+@bot.tree.command(name="embed", description="发送自定义嵌入消息")
+@app_commands.describe(title="标题", description="内容", color="颜色（blue/red/green/gold/purple/orange/teal）")
+async def embed_slash(interaction: discord.Interaction, title: str, description: str, color: str = "blue"):
+    color_map = {
+        "blue": discord.Color.blue(),
+        "red": discord.Color.red(),
+        "green": discord.Color.green(),
+        "gold": discord.Color.gold(),
+        "purple": discord.Color.purple(),
+        "orange": discord.Color.orange(),
+        "teal": discord.Color.teal(),
+        "dark_red": discord.Color.dark_red(),
+        "dark_blue": discord.Color.dark_blue(),
+        "dark_green": discord.Color.dark_green(),
+    }
+    embed_color = color_map.get(color.lower(), discord.Color.blue())
+    embed = discord.Embed(title=title, description=description, color=embed_color, timestamp=datetime.now())
+    await interaction.response.send_message(embed=embed)
+
+@bot.command(name="embed")
+async def embed_prefix(ctx: commands.Context, *, args: str = None):
+    if not args:
+        return await ctx.send("用法：`!embed 标题 | 内容 | 颜色`\n颜色：blue/red/green/gold/purple/orange/teal")
+    parts = args.split("|")
+    title = parts[0].strip() if len(parts) > 0 else "无标题"
+    description = parts[1].strip() if len(parts) > 1 else "无内容"
+    color_name = parts[2].strip().lower() if len(parts) > 2 else "blue"
+    color_map = {
+        "blue": discord.Color.blue(),
+        "red": discord.Color.red(),
+        "green": discord.Color.green(),
+        "gold": discord.Color.gold(),
+        "purple": discord.Color.purple(),
+        "orange": discord.Color.orange(),
+        "teal": discord.Color.teal(),
+        "dark_red": discord.Color.dark_red(),
+        "dark_blue": discord.Color.dark_blue(),
+        "dark_green": discord.Color.dark_green(),
+    }
+    embed_color = color_map.get(color_name, discord.Color.blue())
+    embed = discord.Embed(title=title, description=description, color=embed_color, timestamp=datetime.now())
+    await ctx.send(embed=embed)
 
 @bot.tree.command(name="promote", description="晋升成员的军事职级")
 async def promote_slash(interaction: discord.Interaction, member: discord.Member):
