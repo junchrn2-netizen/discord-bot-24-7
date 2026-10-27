@@ -6,10 +6,14 @@ from discord import app_commands
 from discord.ext import commands
 import os
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logger = logging.getLogger("military_bot")
 
 # ─────────────────────────────────────────────
 # 🛡️ 内务部门 ID
@@ -136,10 +140,10 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 def start_health_server():
-    server = HTTPServer(('0.0.0.0', 10000), HealthHandler)
+    port = int(os.getenv("PORT", "10000"))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    logger.info("Health check listening on port %s", port)
     server.serve_forever()
-
-threading.Thread(target=start_health_server, daemon=True).start()
 
 # ─────────────────────────────────────────────
 # 🚀 权限判定
@@ -484,13 +488,15 @@ class QuizView(discord.ui.View):
         return callback
 
     async def on_timeout(self):
-        if not self.answered:
-            self.answered = True
-            for child in self.children:
-                child.disabled = True
-            if self.training.quiz_msg:
-                await self.training.quiz_msg.edit(view=self)
-            await self.training.fail(self.training.quiz_msg.channel if self.training.quiz_msg else None)
+        if self.answered:
+            return
+
+        self.answered = True
+        for child in self.children:
+            child.disabled = True
+        if self.training.quiz_msg:
+            await self.training.quiz_msg.edit(view=self)
+            await self.training.fail(self.training.quiz_msg.channel)
 
 
 async def process_train(ctx_or_interaction, member):
@@ -647,12 +653,46 @@ async def setrank_prefix(ctx: commands.Context, member: discord.Member, rank_nam
     await process_setrank(ctx, member, rank_name, reason=reason)
 
 @bot.command()
-async def sync(ctx):
+@commands.guild_only()
+@commands.has_permissions(administrator=True)
+async def sync(ctx: commands.Context):
+    """Synchronize slash commands. Restricted to server administrators."""
     synced = await bot.tree.sync()
     await ctx.send(f"✅ 已同步 {len(synced)} 个斜杠命令！")
 
+@sync.error
+async def sync_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ 只有服务器管理员可以同步斜杠命令。")
+        return
+    raise error
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"❌ 缺少参数。使用 `!help {ctx.command}` 查看用法。")
+        return
+    if isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ 找不到该成员。请 @ 提及成员或提供有效 ID。")
+        return
+    if isinstance(error, commands.CommandNotFound):
+        return
+    logger.exception("Command failed", exc_info=error)
+    await ctx.send("❌ 命令执行失败，请稍后重试。")
+
 @bot.event
 async def on_ready():
-    print(f"✅ 军事管理 Bot {bot.user} 已上线。")
+    logger.info("Military Bot %s is online (ID: %s).", bot.user, bot.user.id)
 
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+
+def main():
+    token = os.getenv("DISCORD_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("DISCORD_BOT_TOKEN is not configured. Add it to the environment or .env file.")
+
+    threading.Thread(target=start_health_server, daemon=True).start()
+    bot.run(token, log_handler=None)
+
+
+if __name__ == "__main__":
+    main()
